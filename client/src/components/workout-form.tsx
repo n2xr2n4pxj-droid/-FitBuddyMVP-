@@ -46,6 +46,7 @@ export function WorkoutForm() {
     },
     onSuccess: () => {
       const today = format(new Date(), "yyyy-MM-dd");
+      // Invalidate exact keys used by dashboard queries
       queryClient.invalidateQueries({ queryKey: ["/api/workouts", today] });
       queryClient.invalidateQueries({ queryKey: ["/api/summary/daily", today] });
       queryClient.invalidateQueries({ queryKey: ["/api/summary/weekly"] });

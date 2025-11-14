@@ -63,6 +63,7 @@ export function MealForm() {
     },
     onSuccess: () => {
       const today = format(new Date(), "yyyy-MM-dd");
+      // Invalidate exact keys used by dashboard queries
       queryClient.invalidateQueries({ queryKey: ["/api/meals", today] });
       queryClient.invalidateQueries({ queryKey: ["/api/summary/daily", today] });
       queryClient.invalidateQueries({ queryKey: ["/api/summary/weekly"] });
@@ -191,7 +192,7 @@ export function MealForm() {
           <Input
             id="calories"
             type="number"
-            step="0.1"
+            step="any"
             {...form.register("calories")}
             placeholder="0"
             data-testid="input-calories"
@@ -202,7 +203,7 @@ export function MealForm() {
           <Input
             id="protein"
             type="number"
-            step="0.1"
+            step="any"
             {...form.register("protein")}
             placeholder="0"
             data-testid="input-protein"
@@ -216,7 +217,7 @@ export function MealForm() {
           <Input
             id="carbs"
             type="number"
-            step="0.1"
+            step="any"
             {...form.register("carbs")}
             placeholder="0"
             data-testid="input-carbs"
@@ -227,7 +228,7 @@ export function MealForm() {
           <Input
             id="fat"
             type="number"
-            step="0.1"
+            step="any"
             {...form.register("fat")}
             placeholder="0"
             data-testid="input-fat"
