@@ -1,0 +1,126 @@
+You are an AI developer working inside Replit. Build the first MVP version of a full‑stack web app called “FitBuddy”.
+
+High‑level goal:
+FitBuddy lets users track their daily meals and workouts, see a simple progress summary, and prepare for future social/accountability and coach‑monitoring features. In this first phase, focus on:
+1) user accounts,
+2) logging meals and workouts,
+3) daily/weekly summaries with simple charts,
+4) clean and easy‑to‑understand code structure that a beginner can learn from.
+
+Tech stack and project setup:
+- Use Node.js with Express for the backend server.
+- Use a simple frontend: either React with Vite OR plain HTML/CSS/vanilla JS, choose what you think is simpler to maintain and read.
+- Use a relational database (PostgreSQL or SQLite). If Replit has a built‑in database that is easy to use, you may use that instead and explain your choice.
+- Organize the project with clear folders: /routes, /controllers, /models (or /db), /public or /client for frontend.
+- Create a README.md that explains how to run the project inside Replit (including any npm scripts and environment variables).
+
+Core features for this MVP (Phase 1):
+1. Authentication
+   - User registration and login with email and password.
+   - Store passwords securely using hashing (e.g., bcrypt).
+   - Use JWT or session cookies for authentication, and protect the API routes that need a logged‑in user.
+
+2. Meal logging
+   - A logged‑in user can add a meal entry with:
+     - food name (string),
+     - calories (number),
+     - macros if available (protein, carbs, fat),
+     - meal type (breakfast, lunch, dinner, snack),
+     - date and time.
+   - Provide an API endpoint to create and list meals for the current user for a given date.
+   - For now, calories and macros can be typed manually OR looked up via an external nutrition API (see “Nutrition API integration” below).
+
+3. Workout logging
+   - A logged‑in user can add a workout entry with:
+     - workout type (e.g., run, strength, yoga),
+     - duration in minutes,
+     - date and time,
+     - optional notes.
+   - Provide an API endpoint to create and list workouts for the current user for a given date.
+
+4. Daily/weekly summary
+   - For each date, compute a summary for the current user:
+     - total calories eaten,
+     - optional macro totals (protein, carbs, fat),
+     - total workout duration.
+   - Create a simple dashboard page that shows:
+     - today’s summary,
+     - a 7‑day history chart for calories and workout minutes.
+   - Use a lightweight chart library in the frontend (for example Chart.js or any small alternative), or draw simple charts yourself if that’s easier.
+
+Nutrition API integration (use existing APIs, do NOT build your own nutrition database):
+- DO NOT build a full custom nutrition database in Phase 1.
+- Instead, integrate with an existing free or low‑cost nutrition API such as:
+  - USDA FoodData Central API, or
+  - Nutritionix API (free tier).
+- Implement a simple “search food” endpoint or frontend component where the user types a query (e.g. “apple 100g”) and you call the external API, then pre‑fill calories/macros into the meal form.
+- Make the integration modular, so that in the future we can swap the nutrition provider or extend it to local foods.
+
+Data models (you can adjust field names as needed):
+- User:
+  - id
+  - email
+  - passwordHash
+  - createdAt
+- Meal:
+  - id
+  - userId (FK to User)
+  - foodName
+  - calories
+  - protein
+  - carbs
+  - fat
+  - mealType
+  - date
+  - time
+  - createdAt
+- Workout:
+  - id
+  - userId (FK to User)
+  - workoutType
+  - durationMinutes
+  - date
+  - time
+  - notes
+  - createdAt
+
+Frontend UI requirements:
+- Provide a simple, mobile‑friendly layout.
+- Pages:
+  1) Login / Register page.
+  2) Dashboard page showing:
+     - today’s summary,
+     - “add meal” form,
+     - “add workout” form,
+     - list of today’s meals and workouts.
+  3) Optional: simple 7‑day summary page or section with charts.
+- Keep the design simple but clean. No need for fancy styling; focus on clarity and usability.
+
+Code quality and explanations:
+- Add comments in the code to explain key parts, especially:
+  - authentication flow,
+  - database queries,
+  - how the nutrition API is called,
+  - how the daily summary is calculated.
+- Write a short explanation in the README about:
+  - the overall architecture,
+  - how each main folder is organized,
+  - how a new developer (or a beginner) can extend the app later (for example: adding friends, leaderboards, or coach dashboards in future phases).
+
+Environment variables:
+- Use a .env file (or Replit Secrets) for:
+  - database connection URL,
+  - JWT secret,
+  - external nutrition API keys (USDA or Nutritionix).
+- Do NOT hard‑code any secrets or API keys in the source code.
+
+What to generate now:
+- Set up the full project structure.
+- Implement the backend (auth, meals, workouts, summaries, nutrition API integration).
+- Implement a minimal but functional frontend that can:
+  - register and log in,
+  - add meals and workouts,
+  - view today’s numbers and a simple weekly chart.
+- Make sure the app can run successfully in Replit with a single “Run” command or npm script.
+
+If anything is ambiguous, make reasonable assumptions and continue. Favor simplicity, readability, and a working MVP over complex architectureure.
