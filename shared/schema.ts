@@ -212,8 +212,55 @@ export const upsertUserSchema = createInsertSchema(users).pick({
   profileImageUrl: true,
 });
 
+// TDEE calculation schema
+export const calculateTDEESchema = z.object({
+  weight: z.number().positive("Weight must be positive"),
+  height: z.number().positive("Height must be positive"),
+  age: z.number().int().positive("Age must be positive").max(120),
+  gender: z.enum(["male", "female"]),
+  activityLevel: z.enum(["sedentary", "lightly_active", "moderately_active", "very_active", "extra_active"]),
+});
+
+// Update user TDEE schema
+export const updateUserTDEESchema = z.object({
+  gender: z.enum(["male", "female"]).optional(),
+  age: z.number().int().positive().max(120).optional(),
+  heightCm: z.union([z.string(), z.number()]).optional().transform((val) => {
+    if (val === undefined || val === null || val === "") return undefined;
+    const num = typeof val === "string" ? parseFloat(val) : val;
+    if (isNaN(num) || num <= 0) throw new Error("Height must be a positive number");
+    return String(num);
+  }),
+  currentWeightKg: z.union([z.string(), z.number()]).optional().transform((val) => {
+    if (val === undefined || val === null || val === "") return undefined;
+    const num = typeof val === "string" ? parseFloat(val) : val;
+    if (isNaN(num) || num <= 0) throw new Error("Weight must be a positive number");
+    return String(num);
+  }),
+  activityLevel: z.enum(["sedentary", "lightly_active", "moderately_active", "very_active", "extra_active"]).optional(),
+  bmr: z.union([z.string(), z.number()]).optional().transform((val) => {
+    if (val === undefined || val === null || val === "") return undefined;
+    const num = typeof val === "string" ? parseFloat(val) : val;
+    if (isNaN(num) || num < 0) throw new Error("BMR must be a non-negative number");
+    return String(num);
+  }),
+  tdee: z.union([z.string(), z.number()]).optional().transform((val) => {
+    if (val === undefined || val === null || val === "") return undefined;
+    const num = typeof val === "string" ? parseFloat(val) : val;
+    if (isNaN(num) || num < 0) throw new Error("TDEE must be a non-negative number");
+    return String(num);
+  }),
+  goalType: z.enum(["bulk", "cut", "maintain", "aggressive_cut", "custom"]).optional(),
+  goalCalories: z.number().int().positive().optional(),
+  proteinG: z.number().int().min(0).optional(),
+  carbsG: z.number().int().min(0).optional(),
+  fatG: z.number().int().min(0).optional(),
+});
+
 // TypeScript types
 export type UpsertUser = z.infer<typeof upsertUserSchema>;
+export type CalculateTDEE = z.infer<typeof calculateTDEESchema>;
+export type UpdateUserTDEE = z.infer<typeof updateUserTDEESchema>;
 export type User = typeof users.$inferSelect;
 export type Meal = typeof meals.$inferSelect;
 export type InsertMeal = z.infer<typeof insertMealSchema>;
