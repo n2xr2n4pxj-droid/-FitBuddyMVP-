@@ -2,8 +2,9 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
-import { insertMealSchema, insertWorkoutSchema } from "@shared/schema";
+import { insertMealSchema, insertWorkoutSchema, calculateTDEESchema, updateUserTDEESchema } from "@shared/schema";
 import { format } from "date-fns";
+import { calculateTDEE } from "./tdee";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
@@ -164,6 +165,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error searching nutrition:", error);
       res.status(500).json({ message: "Failed to search foods" });
+    }
+  });
+
+  // TDEE endpoints
+  app.post("/api/tdee/calculate", isAuthenticated, async (req, res) => {
+    try {
+      const validated = calculateTDEESchema.parse(req.body);
+      const result = calculateTDEE(validated);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error calculating TDEE:", error);
+      if (error.name === "ZodError") {
+        res.status(400).json({ message: "Invalid input data", errors: error.errors });
+      } else {
+        res.status(400).json({ message: error.message || "Failed to calculate TDEE" });
+      }
+    }
+  });
+
+  app.put("/api/user/tdee", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user.claims.sub;
+      const validated = updateUserTDEESchema.parse(req.body);
+      
+      const user = await storage.updateUserTDEE(userId, validated);
+      res.json(user);
+    } catch (error: any) {
+      console.error("Error updating user TDEE:", error);
+      if (error.name === "ZodError") {
+        res.status(400).json({ message: "Invalid TDEE data", errors: error.errors });
+      } else if (error.message === "User not found") {
+        res.status(404).json({ message: "User not found" });
+      } else {
+        res.status(500).json({ message: "Failed to update user TDEE" });
+      }
     }
   });
 

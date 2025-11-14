@@ -4,6 +4,7 @@ import {
   workouts,
   type User,
   type UpsertUser,
+  type UpdateUserTDEE,
   type Meal,
   type InsertMeal,
   type Workout,
@@ -19,6 +20,7 @@ export interface IStorage {
   // User operations (required for Replit Auth)
   getUser(id: string): Promise<User | undefined>;
   upsertUser(user: UpsertUser): Promise<User>;
+  updateUserTDEE(userId: string, tdeeData: UpdateUserTDEE): Promise<User>;
 
   // Meal operations
   getMealsByUserAndDate(userId: string, date: Date): Promise<Meal[]>;
@@ -52,6 +54,24 @@ export class DatabaseStorage implements IStorage {
         },
       })
       .returning();
+    return user;
+  }
+
+  async updateUserTDEE(userId: string, tdeeData: UpdateUserTDEE): Promise<User> {
+    const [user] = await db
+      .update(users)
+      .set({
+        ...tdeeData,
+        lastTdeeUpdate: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, userId))
+      .returning();
+    
+    if (!user) {
+      throw new Error("User not found");
+    }
+    
     return user;
   }
 
