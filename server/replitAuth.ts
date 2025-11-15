@@ -120,31 +120,54 @@ export async function setupAuth(app: Express) {
   });
 
   app.get("/api/callback", (req, res, next) => {
-    ensureStrategy(req.hostname);
-    passport.authenticate(`replitauth:${req.hostname}`, (err: any, user: any, info: any) => {
-      if (err) {
-        console.error("Authentication callback error:", err);
-        return res.status(500).json({ 
-          message: "Authentication failed", 
-          error: err.message || "Unknown error"
-        });
-      }
-      if (!user) {
-        console.error("Authentication failed - no user:", info);
-        return res.redirect("/api/login");
-      }
+    try {
+      console.log("[CALLBACK START] hostname:", req.hostname, "query:", JSON.stringify(req.query));
+      console.log("[CALLBACK START] session exists:", !!req.session, "session ID:", req.session?.id);
       
-      req.logIn(user, (err) => {
+      ensureStrategy(req.hostname);
+      console.log("[CALLBACK] Strategy ensured for:", req.hostname);
+      
+      passport.authenticate(`replitauth:${req.hostname}`, (err: any, user: any, info: any) => {
+        console.log("[CALLBACK AUTH] Authenticate callback invoked - err:", !!err, "user:", !!user, "info:", JSON.stringify(info));
+        
         if (err) {
-          console.error("Session login error:", err);
+          console.error("[CALLBACK ERROR] Authentication error:", err);
+          console.error("[CALLBACK ERROR] Error stack:", err.stack);
           return res.status(500).json({ 
-            message: "Failed to establish session", 
-            error: err.message
+            message: "Authentication failed", 
+            error: err.message || "Unknown error",
+            details: process.env.NODE_ENV === "development" ? err.stack : undefined
           });
         }
-        return res.redirect("/");
+        if (!user) {
+          console.error("[CALLBACK ERROR] No user returned, info:", info);
+          return res.redirect("/api/login");
+        }
+        
+        console.log("[CALLBACK] Logging in user...");
+        req.logIn(user, (err) => {
+          if (err) {
+            console.error("[CALLBACK ERROR] Session login failed:", err);
+            console.error("[CALLBACK ERROR] Login error stack:", err.stack);
+            return res.status(500).json({ 
+              message: "Failed to establish session", 
+              error: err.message,
+              details: process.env.NODE_ENV === "development" ? err.stack : undefined
+            });
+          }
+          console.log("[CALLBACK SUCCESS] User logged in, redirecting to /");
+          return res.redirect("/");
+        });
+      })(req, res, next);
+    } catch (error) {
+      console.error("[CALLBACK FATAL ERROR] Uncaught error in callback handler:", error);
+      console.error("[CALLBACK FATAL ERROR] Stack:", error instanceof Error ? error.stack : "No stack");
+      return res.status(500).json({ 
+        message: "Internal server error", 
+        error: error instanceof Error ? error.message : "Unknown error",
+        details: process.env.NODE_ENV === "development" && error instanceof Error ? error.stack : undefined
       });
-    })(req, res, next);
+    }
   });
 
   app.get("/api/logout", (req, res) => {
