@@ -112,8 +112,10 @@ export async function setupAuth(app: Express) {
   passport.deserializeUser((user: Express.User, cb) => cb(null, user));
 
   app.get("/api/login", (req, res, next) => {
-    ensureStrategy(req.hostname);
-    passport.authenticate(`replitauth:${req.hostname}`, {
+    const hostname = req.hostname || req.get('host')?.split(':')[0] || 'localhost';
+    console.log("[LOGIN] hostname:", req.hostname, "host header:", req.get('host'), "resolved hostname:", hostname);
+    ensureStrategy(hostname);
+    passport.authenticate(`replitauth:${hostname}`, {
       prompt: "login consent",
       scope: ["openid", "email", "profile", "offline_access"],
     })(req, res, next);
@@ -121,13 +123,16 @@ export async function setupAuth(app: Express) {
 
   app.get("/api/callback", (req, res, next) => {
     try {
-      console.log("[CALLBACK START] hostname:", req.hostname, "query:", JSON.stringify(req.query));
+      const hostname = req.hostname || req.get('host')?.split(':')[0] || 'localhost';
+      console.log("[CALLBACK START] hostname:", req.hostname, "host header:", req.get('host'), "resolved hostname:", hostname);
+      console.log("[CALLBACK START] query:", JSON.stringify(req.query));
+      console.log("[CALLBACK START] headers x-forwarded-host:", req.get('x-forwarded-host'), "x-forwarded-proto:", req.get('x-forwarded-proto'));
       console.log("[CALLBACK START] session exists:", !!req.session, "session ID:", req.session?.id);
       
-      ensureStrategy(req.hostname);
-      console.log("[CALLBACK] Strategy ensured for:", req.hostname);
+      ensureStrategy(hostname);
+      console.log("[CALLBACK] Strategy ensured for:", hostname);
       
-      passport.authenticate(`replitauth:${req.hostname}`, (err: any, user: any, info: any) => {
+      passport.authenticate(`replitauth:${hostname}`, (err: any, user: any, info: any) => {
         console.log("[CALLBACK AUTH] Authenticate callback invoked - err:", !!err, "user:", !!user, "info:", JSON.stringify(info));
         
         if (err) {
