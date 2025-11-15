@@ -118,19 +118,30 @@ export async function setupAuth(app: Express) {
   });
 
   app.get("/api/callback", (req, res, next) => {
-    try {
-      ensureStrategy(req.hostname);
-      passport.authenticate(`replitauth:${req.hostname}`, {
-        successReturnToOrRedirect: "/",
-        failureRedirect: "/api/login",
-      })(req, res, next);
-    } catch (error) {
-      console.error("Authentication callback error:", error);
-      res.status(500).json({ 
-        message: "Authentication failed", 
-        error: error instanceof Error ? error.message : "Unknown error" 
+    ensureStrategy(req.hostname);
+    passport.authenticate(`replitauth:${req.hostname}`, (err: any, user: any, info: any) => {
+      if (err) {
+        console.error("Authentication callback error:", err);
+        return res.status(500).json({ 
+          message: "Authentication failed", 
+          error: err.message || "Unknown error" 
+        });
+      }
+      if (!user) {
+        console.error("Authentication failed - no user:", info);
+        return res.redirect("/api/login");
+      }
+      req.logIn(user, (err) => {
+        if (err) {
+          console.error("Session login error:", err);
+          return res.status(500).json({ 
+            message: "Failed to establish session", 
+            error: err.message 
+          });
+        }
+        return res.redirect("/");
       });
-    }
+    })(req, res, next);
   });
 
   app.get("/api/logout", (req, res) => {
