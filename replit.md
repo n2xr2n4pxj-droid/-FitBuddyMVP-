@@ -83,7 +83,10 @@ Preferred communication style: Simple, everyday language.
 **Session Management**
 - Server-side sessions stored in PostgreSQL
 - 7-day session TTL with automatic renewal
-- HTTP-only cookies for security (secure flag in production)
+- HTTP-only cookies for security
+- `saveUninitialized: true` to ensure session creation during OAuth flow
+- `sameSite: 'lax'` to allow cookies on redirects from auth provider
+- `secure: false` in development for local testing
 - CSRF protection via session secret
 
 **Authorization Pattern**
