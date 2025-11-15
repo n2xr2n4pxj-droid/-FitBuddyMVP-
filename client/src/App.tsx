@@ -7,6 +7,7 @@ import { useAuth } from "@/hooks/useAuth";
 import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
 import Dashboard from "@/pages/dashboard";
+import TDEECalculator from "@/components/tdee-calculator";
 
 function Router() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -29,6 +30,7 @@ function Router() {
         <Route path="/" component={Landing} />
       ) : (
         <>
+          <Route path="/tdee" component={TDEECalculator} />
           <Route path="/" component={Dashboard} />
         </>
       )}
