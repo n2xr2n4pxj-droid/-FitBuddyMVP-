@@ -31,10 +31,11 @@ export function getSession() {
     secret: process.env.SESSION_SECRET!,
     store: sessionStore,
     resave: false,
-    saveUninitialized: false,
+    saveUninitialized: true, // Changed to true to ensure session is created during OAuth flow
     cookie: {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      secure: false, // Disabled for development to ensure cookies work across redirects
+      sameSite: 'lax', // Allow cookies to be sent on redirects from external auth provider
       maxAge: sessionTtl,
     },
   });
@@ -75,22 +76,13 @@ export async function setupAuth(app: Express) {
     verified: passport.AuthenticateCallback
   ) => {
     try {
-      console.log("[AUTH] Starting verify function");
       const claims = tokens.claims();
-      console.log("[AUTH] Got claims:", JSON.stringify(claims, null, 2));
-      
       const user = {};
       updateUserSession(user, tokens);
-      console.log("[AUTH] Updated user session");
-      
       await upsertUser(claims);
-      console.log("[AUTH] Upserted user to database");
-      
       verified(null, user);
-      console.log("[AUTH] Verify function completed successfully");
     } catch (error) {
-      console.error("[AUTH ERROR] Error in authentication verify function:", error);
-      console.error("[AUTH ERROR] Stack:", error instanceof Error ? error.stack : "No stack");
+      console.error("Authentication verify error:", error);
       verified(error instanceof Error ? error : new Error("Authentication failed"), undefined);
     }
   };
@@ -120,9 +112,6 @@ export async function setupAuth(app: Express) {
   passport.deserializeUser((user: Express.User, cb) => cb(null, user));
 
   app.get("/api/login", (req, res, next) => {
-    console.log("[AUTH] /api/login hit, hostname:", req.hostname);
-    console.log("[AUTH] Session ID:", req.session?.id);
-    console.log("[AUTH] Cookies:", req.headers.cookie);
     ensureStrategy(req.hostname);
     passport.authenticate(`replitauth:${req.hostname}`, {
       prompt: "login consent",
@@ -131,45 +120,28 @@ export async function setupAuth(app: Express) {
   });
 
   app.get("/api/callback", (req, res, next) => {
-    console.log("[AUTH] /api/callback hit, hostname:", req.hostname);
-    console.log("[AUTH] Session ID:", req.session?.id);
-    console.log("[AUTH] Cookies:", req.headers.cookie);
-    console.log("[AUTH] Query params:", req.query);
     ensureStrategy(req.hostname);
-    console.log("[AUTH] Strategy ensured, authenticating...");
-    
     passport.authenticate(`replitauth:${req.hostname}`, (err: any, user: any, info: any) => {
-      console.log("[AUTH] Passport authenticate callback invoked");
-      console.log("[AUTH] err:", err);
-      console.log("[AUTH] user:", user);
-      console.log("[AUTH] info:", info);
-      
       if (err) {
-        console.error("[AUTH ERROR] Authentication callback error:", err);
-        console.error("[AUTH ERROR] Error stack:", err.stack);
+        console.error("Authentication callback error:", err);
         return res.status(500).json({ 
           message: "Authentication failed", 
-          error: err.message || "Unknown error",
-          stack: process.env.NODE_ENV === "development" ? err.stack : undefined
+          error: err.message || "Unknown error"
         });
       }
       if (!user) {
-        console.error("[AUTH ERROR] Authentication failed - no user:", info);
+        console.error("Authentication failed - no user:", info);
         return res.redirect("/api/login");
       }
       
-      console.log("[AUTH] Attempting to log in user...");
       req.logIn(user, (err) => {
         if (err) {
-          console.error("[AUTH ERROR] Session login error:", err);
-          console.error("[AUTH ERROR] Session error stack:", err.stack);
+          console.error("Session login error:", err);
           return res.status(500).json({ 
             message: "Failed to establish session", 
-            error: err.message,
-            stack: process.env.NODE_ENV === "development" ? err.stack : undefined
+            error: err.message
           });
         }
-        console.log("[AUTH] Login successful, redirecting to /");
         return res.redirect("/");
       });
     })(req, res, next);
