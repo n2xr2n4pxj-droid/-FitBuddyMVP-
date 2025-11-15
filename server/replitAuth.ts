@@ -75,12 +75,22 @@ export async function setupAuth(app: Express) {
     verified: passport.AuthenticateCallback
   ) => {
     try {
+      console.log("[AUTH] Starting verify function");
+      const claims = tokens.claims();
+      console.log("[AUTH] Got claims:", JSON.stringify(claims, null, 2));
+      
       const user = {};
       updateUserSession(user, tokens);
-      await upsertUser(tokens.claims());
+      console.log("[AUTH] Updated user session");
+      
+      await upsertUser(claims);
+      console.log("[AUTH] Upserted user to database");
+      
       verified(null, user);
+      console.log("[AUTH] Verify function completed successfully");
     } catch (error) {
-      console.error("Error in authentication verify function:", error);
+      console.error("[AUTH ERROR] Error in authentication verify function:", error);
+      console.error("[AUTH ERROR] Stack:", error instanceof Error ? error.stack : "No stack");
       verified(error instanceof Error ? error : new Error("Authentication failed"), undefined);
     }
   };
@@ -118,27 +128,42 @@ export async function setupAuth(app: Express) {
   });
 
   app.get("/api/callback", (req, res, next) => {
+    console.log("[AUTH] /api/callback hit, hostname:", req.hostname);
     ensureStrategy(req.hostname);
+    console.log("[AUTH] Strategy ensured, authenticating...");
+    
     passport.authenticate(`replitauth:${req.hostname}`, (err: any, user: any, info: any) => {
+      console.log("[AUTH] Passport authenticate callback invoked");
+      console.log("[AUTH] err:", err);
+      console.log("[AUTH] user:", user);
+      console.log("[AUTH] info:", info);
+      
       if (err) {
-        console.error("Authentication callback error:", err);
+        console.error("[AUTH ERROR] Authentication callback error:", err);
+        console.error("[AUTH ERROR] Error stack:", err.stack);
         return res.status(500).json({ 
           message: "Authentication failed", 
-          error: err.message || "Unknown error" 
+          error: err.message || "Unknown error",
+          stack: process.env.NODE_ENV === "development" ? err.stack : undefined
         });
       }
       if (!user) {
-        console.error("Authentication failed - no user:", info);
+        console.error("[AUTH ERROR] Authentication failed - no user:", info);
         return res.redirect("/api/login");
       }
+      
+      console.log("[AUTH] Attempting to log in user...");
       req.logIn(user, (err) => {
         if (err) {
-          console.error("Session login error:", err);
+          console.error("[AUTH ERROR] Session login error:", err);
+          console.error("[AUTH ERROR] Session error stack:", err.stack);
           return res.status(500).json({ 
             message: "Failed to establish session", 
-            error: err.message 
+            error: err.message,
+            stack: process.env.NODE_ENV === "development" ? err.stack : undefined
           });
         }
+        console.log("[AUTH] Login successful, redirecting to /");
         return res.redirect("/");
       });
     })(req, res, next);
