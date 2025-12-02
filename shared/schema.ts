@@ -30,6 +30,8 @@ export const users = pgTable("users", {
     .primaryKey()
     .default(sql`gen_random_uuid()`),
   email: varchar("email").unique(),
+  // Local auth password hash (only used for email/password login)
+  passwordHash: varchar("password_hash"),
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
   profileImageUrl: varchar("profile_image_url"),
@@ -68,18 +70,26 @@ export const meals = pgTable(
     userId: varchar("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    foodName: text("food_name").notNull(),
+    name: text("name").notNull(),  // 改為 "name" 以匹配 server/db/schema.ts
+    description: text("description"),
+    mealType: varchar("meal_type", { length: 50 }).notNull(), // breakfast, lunch, dinner, snack
     calories: decimal("calories", { precision: 10, scale: 2 }).notNull(),
     protein: decimal("protein", { precision: 10, scale: 2 }),
     carbs: decimal("carbs", { precision: 10, scale: 2 }),
     fat: decimal("fat", { precision: 10, scale: 2 }),
-    mealType: varchar("meal_type", { length: 50 }).notNull(), // breakfast, lunch, dinner, snack
-    date: timestamp("date").notNull(),
-    createdAt: timestamp("created_at").defaultNow(),
+    // Serving size fields
+    servingSize: decimal("serving_size", { precision: 10, scale: 2 }), // Base serving size from database (g/ml)
+    servingSizeUnit: varchar("serving_size_unit", { length: 10 }), // Unit: "g" or "ml"
+    userServingAmount: decimal("user_serving_amount", { precision: 10, scale: 2 }), // User's actual serving amount (g/ml)
+    portion: text("portion"), // 例如：1 碗、200g
+    photo: text("photo"), // 圖片 URL
+    consumedAt: timestamp("consumed_at", { withTimezone: true }).defaultNow().notNull(), // 改為 consumedAt 以匹配 server/db/schema.ts
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
   (table) => [
     index("meals_user_id_idx").on(table.userId),
-    index("meals_date_idx").on(table.date),
+    index("meals_consumed_at_idx").on(table.consumedAt),
   ],
 );
 
@@ -166,31 +176,29 @@ export const tdeeHistoryRelations = relations(tdeeHistory, ({ one }) => ({
 
 // Zod schemas for validation
 export const insertMealSchema = createInsertSchema(meals, {
-  foodName: z.string().min(1, "Food name is required"),
+  name: z.string().min(1, "Food name is required"),  // 改為 "name"
   calories: z.union([z.string(), z.number()]).transform((val) => String(val)),
-  protein: z
-    .union([z.string(), z.number()])
-    .optional()
-    .transform((val) =>
-      val !== undefined && val !== null && val !== "" ? String(val) : undefined,
-    ),
-  carbs: z
-    .union([z.string(), z.number()])
-    .optional()
-    .transform((val) =>
-      val !== undefined && val !== null && val !== "" ? String(val) : undefined,
-    ),
-  fat: z
-    .union([z.string(), z.number()])
-    .optional()
-    .transform((val) =>
-      val !== undefined && val !== null && val !== "" ? String(val) : undefined,
-    ),
-  mealType: z.enum(["breakfast", "lunch", "dinner", "snack"]),
-  date: z
-    .union([z.date(), z.string()])
+  protein: z.union([z.string(), z.number()]).optional()
+    .transform((val) => val !== undefined && val !== null && val !== "" ? String(val) : undefined),
+  carbs: z.union([z.string(), z.number()]).optional()
+    .transform((val) => val !== undefined && val !== null && val !== "" ? String(val) : undefined),
+  fat: z.union([z.string(), z.number()]).optional()
+    .transform((val) => val !== undefined && val !== null && val !== "" ? String(val) : undefined),
+  mealType: z.enum(["BREAKFAST", "LUNCH", "DINNER", "SNACK"]),
+  consumedAt: z.union([z.date(), z.string()])  // 改為 consumedAt
     .transform((val) => (typeof val === "string" ? new Date(val) : val)),
-}).omit({ id: true, userId: true, createdAt: true });
+  
+  // ✅ 添加缺失的字段
+  servingSize: z.union([z.string(), z.number()]).optional()
+    .transform((val) => val !== undefined && val !== null && val !== "" ? String(val) : undefined),
+  servingSizeUnit: z.enum(["g", "ml"]).optional(),
+  userServingAmount: z.union([z.string(), z.number()]).optional()
+    .transform((val) => val !== undefined && val !== null && val !== "" ? String(val) : undefined),
+  
+  description: z.string().optional(),
+  portion: z.string().optional(),
+  photo: z.string().optional(),
+}).omit({ id: true, userId: true, createdAt: true, updatedAt: true });
 
 export const insertWorkoutSchema = createInsertSchema(workouts, {
   workoutType: z.string().min(1, "Workout type is required"),

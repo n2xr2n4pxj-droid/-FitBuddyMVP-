@@ -1,7 +1,10 @@
 import { Button } from "@/components/ui/button";
 import { Activity, Utensils, TrendingUp, Users } from "lucide-react";
+import { useLocation } from "wouter";
 
 export default function Landing() {
+  const [, setLocation] = useLocation();
+
   return (
     <div className="min-h-screen bg-background">
       {/* Hero Section */}
@@ -22,7 +25,7 @@ export default function Landing() {
               <Button
                 size="lg"
                 className="w-full sm:w-auto text-base px-8 py-6"
-                onClick={() => window.location.href = "/api/login"}
+                onClick={() => setLocation("/login")}
                 data-testid="button-get-started"
               >
                 Get Started Free
@@ -31,7 +34,7 @@ export default function Landing() {
                 size="lg"
                 variant="outline"
                 className="w-full sm:w-auto text-base px-8 py-6"
-                onClick={() => window.location.href = "/api/login"}
+                onClick={() => setLocation("/login")}
                 data-testid="button-login"
               >
                 Log In
@@ -103,7 +106,7 @@ export default function Landing() {
           <Button
             size="lg"
             className="text-base px-8 py-6"
-            onClick={() => window.location.href = "/api/login"}
+            onClick={() => setLocation("/login")}
             data-testid="button-cta-start"
           >
             Get Started Now

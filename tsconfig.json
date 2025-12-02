@@ -1,9 +1,8 @@
 {
-  "include": ["client/src/**/*", "shared/**/*", "server/**/*"],
+  "include": ["client/src", "shared", "server"],
   "exclude": ["node_modules", "build", "dist", "**/*.test.ts"],
   "compilerOptions": {
-    "incremental": true,
-    "tsBuildInfoFile": "./node_modules/typescript/tsbuildinfo",
+    "incremental": false,
     "noEmit": true,
     "module": "ESNext",
     "strict": true,
@@ -18,6 +17,11 @@
     "paths": {
       "@/*": ["./client/src/*"],
       "@shared/*": ["./shared/*"]
+    }
+  },
+  "ts-node": {
+    "compilerOptions": {
+      "skipLibCheck": true
     }
   }
 }

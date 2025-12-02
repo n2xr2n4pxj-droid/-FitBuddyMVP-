@@ -33,7 +33,7 @@ export function MealList({ meals }: { meals: Meal[] }) {
             <div className="flex-1 space-y-2">
               <div className="flex items-center gap-2 flex-wrap">
                 <h4 className="font-semibold" data-testid={`meal-name-${meal.id}`}>
-                  {meal.foodName}
+                  {meal.name || "Unknown Food"}
                 </h4>
                 <Badge 
                   className={MEAL_TYPE_COLORS[meal.mealType as keyof typeof MEAL_TYPE_COLORS]}
@@ -64,7 +64,7 @@ export function MealList({ meals }: { meals: Meal[] }) {
               </div>
             </div>
             <span className="text-xs text-muted-foreground whitespace-nowrap">
-              {format(new Date(meal.date), "h:mm a")}
+              {format(new Date(meal.consumedAt || meal.date), "h:mm a")}
             </span>
           </div>
         </div>

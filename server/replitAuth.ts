@@ -1,217 +1,394 @@
-import * as client from "openid-client";
-import { Strategy, type VerifyFunction } from "openid-client/passport";
-
-import passport from "passport";
-import session from "express-session";
 import type { Express, RequestHandler } from "express";
-import memoize from "memoizee";
-import connectPg from "connect-pg-simple";
-import { storage } from "./storage";
+import session from "express-session";
+import passport from "passport";
+import { Strategy as LocalStrategy } from "passport-local";
+import crypto from "crypto";
 
-const getOidcConfig = memoize(
-  async () => {
-    return await client.discovery(
-      new URL(process.env.ISSUER_URL ?? "https://replit.com/oidc"),
-      process.env.REPL_ID!
-    );
-  },
-  { maxAge: 3600 * 1000 }
-);
+import { db, pool } from "./db";
+import { users, type User } from "@shared/schema";
+import { eq } from "drizzle-orm";
+
+// --- Local email/password auth for development ---
+
+function hashPassword(password: string, salt?: string): string {
+  const actualSalt = salt ?? crypto.randomBytes(16).toString("hex");
+  const hash = crypto
+    .pbkdf2Sync(password, actualSalt, 10000, 64, "sha512")
+    .toString("hex");
+  return `${actualSalt}:${hash}`;
+}
+
+function verifyPassword(password: string, stored?: string | null): boolean {
+  if (!stored) {
+    console.log("[verifyPassword] No stored password hash provided");
+    return false;
+  }
+  
+  // 檢查格式：應該是 "salt:hash"
+  if (!stored.includes(":")) {
+    console.log("[verifyPassword] Invalid password hash format (missing colon)");
+    return false;
+  }
+  
+  const [salt, hash] = stored.split(":");
+  
+  if (!salt || !hash) {
+    console.log("[verifyPassword] Invalid password hash format (missing salt or hash)");
+    return false;
+  }
+  
+  const hashToVerify = crypto
+    .pbkdf2Sync(password, salt, 10000, 64, "sha512")
+    .toString("hex");
+  
+  const isValid = hashToVerify === hash;
+  console.log("[verifyPassword] Verification details:", {
+    saltLength: salt.length,
+    hashLength: hash.length,
+    hashToVerifyLength: hashToVerify.length,
+    isValid,
+  });
+  
+  return isValid;
+}
 
 export function getSession() {
   const sessionTtl = 7 * 24 * 60 * 60 * 1000; // 1 week
-  const pgStore = connectPg(session);
-  const sessionStore = new pgStore({
-    conString: process.env.DATABASE_URL,
-    createTableIfMissing: false,
-    ttl: sessionTtl,
-    tableName: "sessions",
-  });
   return session({
-    secret: process.env.SESSION_SECRET!,
-    store: sessionStore,
+    secret: process.env.SESSION_SECRET || "dev-session-secret",
     resave: false,
-    saveUninitialized: true, // Changed to true to ensure session is created during OAuth flow
+    saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: false, // Disabled for development to ensure cookies work across redirects
-      sameSite: 'lax', // Allow cookies to be sent on redirects from external auth provider
+      secure: false, // 本機開發用，HTTP 也能帶 cookie
+      sameSite: "lax",
       maxAge: sessionTtl,
     },
   });
 }
 
-function updateUserSession(
-  user: any,
-  tokens: client.TokenEndpointResponse & client.TokenEndpointResponseHelpers
-) {
-  user.claims = tokens.claims();
-  user.access_token = tokens.access_token;
-  user.refresh_token = tokens.refresh_token;
-  user.expires_at = user.claims?.exp;
-}
-
-async function upsertUser(
-  claims: any,
-) {
-  await storage.upsertUser({
-    id: claims["sub"],
-    email: claims["email"],
-    firstName: claims["first_name"],
-    lastName: claims["last_name"],
-    profileImageUrl: claims["profile_image_url"],
-  });
+function sanitizeUser(user: User) {
+  // 去掉敏感欄位（例如 passwordHash），避免送到前端
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { passwordHash, ...safeUser } = user as any;
+  return safeUser;
 }
 
 export async function setupAuth(app: Express) {
-  app.set("trust proxy", 1);
   app.use(getSession());
   app.use(passport.initialize());
   app.use(passport.session());
 
-  const config = await getOidcConfig();
-
-  const verify: VerifyFunction = async (
-    tokens: client.TokenEndpointResponse & client.TokenEndpointResponseHelpers,
-    verified: passport.AuthenticateCallback
-  ) => {
-    try {
-      const claims = tokens.claims();
-      const user = {};
-      updateUserSession(user, tokens);
-      await upsertUser(claims);
-      verified(null, user);
-    } catch (error) {
-      console.error("Authentication verify error:", error);
-      verified(error instanceof Error ? error : new Error("Authentication failed"), undefined);
-    }
-  };
-
-  // Keep track of registered strategies
-  const registeredStrategies = new Set<string>();
-
-  // Helper function to ensure strategy exists for a domain
-  const ensureStrategy = (domain: string) => {
-    const strategyName = `replitauth:${domain}`;
-    if (!registeredStrategies.has(strategyName)) {
-      const strategy = new Strategy(
-        {
-          name: strategyName,
-          config,
-          scope: "openid email profile offline_access",
-          callbackURL: `https://${domain}/api/callback`,
-        },
-        verify,
-      );
-      passport.use(strategy);
-      registeredStrategies.add(strategyName);
-    }
-  };
-
-  passport.serializeUser((user: Express.User, cb) => cb(null, user));
-  passport.deserializeUser((user: Express.User, cb) => cb(null, user));
-
-  app.get("/api/login", (req, res, next) => {
-    const hostname = req.hostname || req.get('host')?.split(':')[0] || 'localhost';
-    console.log("[LOGIN] hostname:", req.hostname, "host header:", req.get('host'), "resolved hostname:", hostname);
-    ensureStrategy(hostname);
-    passport.authenticate(`replitauth:${hostname}`, {
-      prompt: "login consent",
-      scope: ["openid", "email", "profile", "offline_access"],
-    })(req, res, next);
+  passport.serializeUser((user: any, done) => {
+    done(null, user.id);
   });
 
-  app.get("/api/callback", (req, res, next) => {
+  passport.deserializeUser(async (id: string, done) => {
     try {
-      const hostname = req.hostname || req.get('host')?.split(':')[0] || 'localhost';
-      console.log("[CALLBACK START] hostname:", req.hostname, "host header:", req.get('host'), "resolved hostname:", hostname);
-      console.log("[CALLBACK START] query:", JSON.stringify(req.query));
-      console.log("[CALLBACK START] headers x-forwarded-host:", req.get('x-forwarded-host'), "x-forwarded-proto:", req.get('x-forwarded-proto'));
-      console.log("[CALLBACK START] session exists:", !!req.session, "session ID:", req.session?.id);
+      // 使用原始 SQL 查詢，避免 Drizzle schema 檢查問題
+      const result = await pool.query(
+        `SELECT id, email, password_hash, first_name, last_name, created_at, updated_at FROM users WHERE id = $1 LIMIT 1`,
+        [id]
+      );
       
-      ensureStrategy(hostname);
-      console.log("[CALLBACK] Strategy ensured for:", hostname);
-      
-      passport.authenticate(`replitauth:${hostname}`, (err: any, user: any, info: any) => {
-        console.log("[CALLBACK AUTH] Authenticate callback invoked - err:", !!err, "user:", !!user, "info:", JSON.stringify(info));
-        
-        if (err) {
-          console.error("[CALLBACK ERROR] Authentication error:", err);
-          console.error("[CALLBACK ERROR] Error stack:", err.stack);
-          return res.status(500).json({ 
-            message: "Authentication failed", 
-            error: err.message || "Unknown error",
-            details: process.env.NODE_ENV === "development" ? err.stack : undefined
-          });
-        }
-        if (!user) {
-          console.error("[CALLBACK ERROR] No user returned, info:", info);
-          return res.redirect("/api/login");
-        }
-        
-        console.log("[CALLBACK] Logging in user...");
-        req.logIn(user, (err) => {
-          if (err) {
-            console.error("[CALLBACK ERROR] Session login failed:", err);
-            console.error("[CALLBACK ERROR] Login error stack:", err.stack);
-            return res.status(500).json({ 
-              message: "Failed to establish session", 
-              error: err.message,
-              details: process.env.NODE_ENV === "development" ? err.stack : undefined
-            });
-          }
-          console.log("[CALLBACK SUCCESS] User logged in, redirecting to /");
-          return res.redirect("/");
-        });
-      })(req, res, next);
+      const user = result.rows[0] ? {
+        id: result.rows[0].id,
+        email: result.rows[0].email,
+        passwordHash: result.rows[0].password_hash,
+        firstName: result.rows[0].first_name,
+        lastName: result.rows[0].last_name,
+        createdAt: result.rows[0].created_at,
+        updatedAt: result.rows[0].updated_at,
+      } : null;
+      if (!user) {
+        console.log("[DeserializeUser] User not found for id:", id);
+        return done(null, false);
+      }
+      return done(null, user);
     } catch (error) {
-      console.error("[CALLBACK FATAL ERROR] Uncaught error in callback handler:", error);
-      console.error("[CALLBACK FATAL ERROR] Stack:", error instanceof Error ? error.stack : "No stack");
+      console.error("[DeserializeUser] Error:", error);
+      return done(error as Error);
+    }
+  });
+
+  passport.use(
+    new LocalStrategy(
+      {
+        usernameField: "email",
+        passwordField: "password",
+        session: true,
+      },
+      async (email, password, done) => {
+        try {
+          if (!email || typeof email !== "string" || email.trim() === "") {
+            console.log("[LocalStrategy] Invalid email provided");
+            return done(null, false, { message: "Email is required" });
+          }
+          
+          console.log("[LocalStrategy] Attempting login for email:", email);
+          
+          // 標準化 email（轉小寫並去除空格）
+          const normalizedEmail = email.trim().toLowerCase();
+          console.log("[LocalStrategy] Normalized email:", normalizedEmail);
+          
+          // 使用原始 SQL 查詢，避免 Drizzle schema 檢查問題
+          console.log("[LocalStrategy] Executing SQL query for email:", normalizedEmail);
+          const result = await pool.query(
+            `SELECT id, email, password_hash, first_name, last_name, created_at, updated_at FROM users WHERE LOWER(TRIM(email)) = $1 LIMIT 1`,
+            [normalizedEmail]
+          );
+          
+          console.log("[LocalStrategy] Query result:", {
+            rowCount: result.rowCount,
+            hasRows: result.rows.length > 0,
+            firstRowKeys: result.rows[0] ? Object.keys(result.rows[0]) : null,
+            firstRowEmail: result.rows[0]?.email || null,
+          });
+          
+          // 如果查詢沒有結果，檢查數據庫中的所有用戶
+          if (!result.rows || result.rows.length === 0) {
+            console.log("[LocalStrategy] No user found for email:", normalizedEmail);
+            // 調試：檢查數據庫中的所有用戶 email
+            const allUsersResult = await pool.query(
+              `SELECT id, email, LOWER(TRIM(email)) as normalized_email FROM users LIMIT 10`
+            );
+            console.log("[LocalStrategy] All users in database:", allUsersResult.rows.map(r => ({
+              id: r.id,
+              email: r.email,
+              normalized: r.normalized_email
+            })));
+            return done(null, false, { message: "Invalid email or password" });
+          }
+          
+          const user = result.rows[0] ? {
+            id: result.rows[0].id,
+            email: result.rows[0].email,
+            passwordHash: result.rows[0].password_hash,
+            firstName: result.rows[0].first_name,
+            lastName: result.rows[0].last_name,
+            createdAt: result.rows[0].created_at,
+            updatedAt: result.rows[0].updated_at,
+          } : null;
+          
+          if (!user) {
+            console.log("[LocalStrategy] User object is null after parsing");
+            return done(null, false, { message: "Invalid email or password" });
+          }
+          
+          console.log("[LocalStrategy] User found:", {
+            id: user.id,
+            email: user.email,
+            hasPasswordHash: !!user.passwordHash,
+          });
+          
+          console.log("[LocalStrategy] User found, verifying password...");
+          const passwordHash = (user as any).passwordHash;
+          
+          if (!passwordHash) {
+            console.log("[LocalStrategy] User has no password hash");
+            return done(null, false, { message: "Invalid email or password" });
+          }
+          
+          // 調試：記錄 password_hash 的格式（只顯示前 20 個字符）
+          console.log("[LocalStrategy] Password hash format check:", {
+            hasColon: passwordHash.includes(":"),
+            hashLength: passwordHash.length,
+            hashPrefix: passwordHash.substring(0, 20) + "...",
+          });
+          
+          const passwordValid = verifyPassword(password, passwordHash);
+          
+          console.log("[LocalStrategy] Password verification result:", passwordValid);
+          
+          if (!passwordValid) {
+            console.log("[LocalStrategy] Password verification failed");
+            return done(null, false, { message: "Invalid email or password" });
+    }
+          
+          console.log("[LocalStrategy] Login successful for user:", user.id);
+          return done(null, user);
+        } catch (error: any) {
+          console.error("[LocalStrategy] Error during login:", error);
+          console.error("[LocalStrategy] Error stack:", error?.stack);
+          console.error("[LocalStrategy] Error message:", error?.message);
+          return done(error as Error);
+        }
+      }
+    )
+  );
+
+  // 註冊：建立帳號並自動登入
+  app.post("/api/auth/register", async (req, res) => {
+    try {
+      console.log("[Register] Request received:", { body: req.body });
+      const { email, password, firstName, lastName } = req.body ?? {};
+
+      if (!email || typeof email !== "string") {
+        console.log("[Register] Email validation failed");
+        return res.status(400).json({ message: "Email is required" });
+      }
+      if (!password || typeof password !== "string" || password.length < 6) {
+        console.log("[Register] Password validation failed");
+        return res
+          .status(400)
+          .json({ message: "Password must be at least 6 characters" });
+      }
+
+      // 標準化 email（轉小寫並去除空格）
+      const normalizedEmail = email.trim().toLowerCase();
+      console.log("[Register] Normalized email:", normalizedEmail);
+      
+      console.log("[Register] Checking for existing user...");
+      // 使用原始 SQL 查詢檢查用戶是否存在
+      const existingResult = await pool.query(
+        `SELECT id FROM users WHERE LOWER(TRIM(email)) = $1 LIMIT 1`,
+        [normalizedEmail]
+      );
+      
+      if (existingResult.rows.length > 0) {
+        console.log("[Register] Email already exists");
+        return res.status(400).json({ message: "Email already registered" });
+      }
+
+      console.log("[Register] Creating password hash...");
+      const passwordHash = hashPassword(password);
+
+      console.log("[Register] Inserting new user...");
+      // 使用原始 SQL 查詢插入用戶，避免 Drizzle schema 檢查問題
+      // 注意：數據庫要求 username 欄位，我們使用 email 作為 username
+      const username = normalizedEmail.split('@')[0]; // 使用 email 的用戶名部分作為 username
+      console.log("[Register] Generated username:", username);
+      
+      if (!username || username.trim() === '') {
+        console.error("[Register] Invalid username generated from email:", normalizedEmail);
+        return res.status(400).json({ message: "Invalid email format" });
+      }
+      
+      const insertSql = `INSERT INTO users (email, username, password_hash, first_name, last_name, created_at, updated_at) 
+         VALUES ($1, $2, $3, $4, $5, NOW(), NOW()) 
+         RETURNING id, email, password_hash, first_name, last_name, created_at, updated_at`;
+      console.log("[Register] SQL query:", insertSql);
+      console.log("[Register] SQL parameters:", {
+        email: normalizedEmail,
+        username: username,
+        passwordHash: passwordHash ? `${passwordHash.substring(0, 20)}...` : 'null',
+        firstName: firstName || null,
+        lastName: lastName || null,
+      });
+      
+      const insertResult = await pool.query(
+        insertSql,
+        [normalizedEmail, username, passwordHash, firstName || null, lastName || null]
+      );
+
+      if (!insertResult.rows || insertResult.rows.length === 0) {
+        console.error("[Register] Failed to create user - no user returned");
+        return res.status(500).json({ message: "Failed to create user" });
+      }
+      
+      const newUser = {
+        id: insertResult.rows[0].id,
+        email: insertResult.rows[0].email,
+        passwordHash: insertResult.rows[0].password_hash,
+        firstName: insertResult.rows[0].first_name,
+        lastName: insertResult.rows[0].last_name,
+        createdAt: insertResult.rows[0].created_at,
+        updatedAt: insertResult.rows[0].updated_at,
+      };
+
+      console.log("[Register] User created successfully, establishing session...");
+      req.login(newUser as any, (err) => {
+        if (err) {
+          console.error("[Register] Session establishment error:", err);
+          return res
+            .status(500)
+            .json({ message: "Failed to establish session after register" });
+        }
+        console.log("[Register] Registration successful");
+        return res.status(201).json({ user: sanitizeUser(newUser as any) });
+      });
+    } catch (error: any) {
+      console.error("[Register] Error:", error);
+      console.error("[Register] Error stack:", error?.stack);
+      console.error("[Register] Error message:", error?.message);
       return res.status(500).json({ 
-        message: "Internal server error", 
-        error: error instanceof Error ? error.message : "Unknown error",
-        details: process.env.NODE_ENV === "development" && error instanceof Error ? error.stack : undefined
+        message: "Failed to register user",
+        error: error?.message || String(error)
       });
     }
   });
 
-  app.get("/api/logout", (req, res) => {
+  // 登入：使用 passport-local
+  app.post("/api/auth/login", (req, res, next) => {
+    try {
+      console.log("[Login] Request received:", { 
+        email: req.body?.email,
+        hasPassword: !!req.body?.password,
+        bodyKeys: Object.keys(req.body || {})
+      });
+      
+      if (!req.body || !req.body.email || !req.body.password) {
+        console.log("[Login] Missing email or password in request");
+        return res.status(400).json({ 
+          message: "Email and password are required" 
+        });
+      }
+      
+      passport.authenticate("local", (err: Error | null, user: User | false, info?: { message?: string }) => {
+      if (err) {
+          console.error("[Login] Authentication error:", err);
+          console.error("[Login] Error stack:", err?.stack);
+          console.error("[Login] Error name:", err?.name);
+          return res.status(500).json({ 
+            message: "Login failed",
+            error: err?.message || String(err)
+          });
+      }
+      if (!user) {
+          console.log("[Login] Authentication failed:", info?.message);
+        return res
+          .status(401)
+          .json({ message: info?.message || "Invalid credentials" });
+      }
+        console.log("[Login] Authentication successful, establishing session...");
+      req.logIn(user, (loginErr) => {
+        if (loginErr) {
+            console.error("[Login] Session establishment error:", loginErr);
+            console.error("[Login] Session error stack:", (loginErr as any)?.stack);
+          return res
+            .status(500)
+              .json({ 
+                message: "Failed to establish session",
+                error: (loginErr as any)?.message || String(loginErr)
+              });
+        }
+          console.log("[Login] Login successful");
+        return res.json({ user: sanitizeUser(user as User) });
+      });
+    })(req, res, next);
+    } catch (error: any) {
+      console.error("[Login] Unexpected error:", error);
+      console.error("[Login] Error stack:", error?.stack);
+      return res.status(500).json({ 
+        message: "Unexpected error during login",
+        error: error?.message || String(error)
+      });
+    }
+  });
+
+  // 登出：清除 session
+  app.post("/api/auth/logout", (req, res) => {
     req.logout(() => {
-      res.redirect(
-        client.buildEndSessionUrl(config, {
-          client_id: process.env.REPL_ID!,
-          post_logout_redirect_uri: `${req.protocol}://${req.hostname}`,
-        }).href
-      );
+      req.session.destroy(() => {
+        res.json({ success: true });
+      });
     });
   });
 }
 
-export const isAuthenticated: RequestHandler = async (req, res, next) => {
-  const user = req.user as any;
-
-  if (!req.isAuthenticated() || !user.expires_at) {
-    return res.status(401).json({ message: "Unauthorized" });
-  }
-
-  const now = Math.floor(Date.now() / 1000);
-  if (now <= user.expires_at) {
+export const isAuthenticated: RequestHandler = (req, res, next) => {
+  if (req.isAuthenticated && req.isAuthenticated()) {
     return next();
   }
-
-  const refreshToken = user.refresh_token;
-  if (!refreshToken) {
-    res.status(401).json({ message: "Unauthorized" });
-    return;
-  }
-
-  try {
-    const config = await getOidcConfig();
-    const tokenResponse = await client.refreshTokenGrant(config, refreshToken);
-    updateUserSession(user, tokenResponse);
-    return next();
-  } catch (error) {
-    res.status(401).json({ message: "Unauthorized" });
-    return;
-  }
+  return res.status(401).json({ message: "Unauthorized" });
 };

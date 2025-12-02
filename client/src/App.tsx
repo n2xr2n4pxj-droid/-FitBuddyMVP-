@@ -8,6 +8,11 @@ import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
 import Dashboard from "@/pages/dashboard";
 import TDEECalculator from "@/components/tdee-calculator";
+import AuthPage from "@/pages/auth";
+import Profile from "@/pages/profile";
+import History from "@/pages/history";
+import Trends from "@/pages/trends";
+import Layout from "@/components/layout";
 
 function Router() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -24,18 +29,27 @@ function Router() {
     );
   }
 
+  if (!isAuthenticated) {
   return (
     <Switch>
-      {!isAuthenticated ? (
         <Route path="/" component={Landing} />
-      ) : (
-        <>
-          <Route path="/tdee" component={TDEECalculator} />
-          <Route path="/" component={Dashboard} />
-        </>
-      )}
+          <Route path="/login" component={AuthPage} />
       <Route component={NotFound} />
     </Switch>
+    );
+  }
+
+  return (
+    <Layout>
+      <Switch>
+        <Route path="/tdee" component={TDEECalculator} />
+        <Route path="/profile" component={Profile} />
+        <Route path="/history" component={History} />
+        <Route path="/trends" component={Trends} />
+        <Route path="/" component={Dashboard} />
+        <Route component={NotFound} />
+      </Switch>
+    </Layout>
   );
 }
 
