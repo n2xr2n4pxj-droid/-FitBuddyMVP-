@@ -80,26 +80,12 @@ export default function Dashboard() {
     }
   }, [isAuthenticated, authLoading, toast]);
 
-  // 載入所有訓練記錄
+  // 載入個人最佳紀錄
   useEffect(() => {
     if (isAuthenticated) {
-      loadWorkouts();
       loadPersonalBests();
     }
   }, [isAuthenticated]);
-
-  const loadWorkouts = async () => {
-    try {
-      const response = await fetch('/api/workouts', {
-        credentials: 'include',
-      });
-      if (!response.ok) throw new Error('Failed to fetch workouts');
-      const data = await response.json();
-      setAllWorkouts(data);
-    } catch (error) {
-      console.error('Error loading workouts:', error);
-    }
-  };
 
   const loadPersonalBests = async () => {
     try {
@@ -123,6 +109,7 @@ export default function Dashboard() {
     setCardioDuration('');
     setCardioCustomType('');
     setEditingWorkoutId(null);
+    setEditingWorkoutPerformedAt(null);
   };
 
   // 添加新的訓練行
@@ -169,38 +156,75 @@ export default function Dashboard() {
 
       // 如果是力量訓練
       if (exerciseName) {
-        // 取最後一行的數據（或者可以改為取最大值）
-        const lastSet = trainingSets[trainingSets.length - 1];
+        // 保存 exercises 陣列（所有訓練組）
+        const exercisesData = trainingSets
+          .filter(set => set.sets || set.reps || set.weight) // 只包含至少有一個字段的組
+          .map(set => ({
+            exerciseName: exerciseName.trim(),
+            sets: set.sets && set.sets.trim() ? parseInt(set.sets) : null,
+            reps: set.reps && set.reps.trim() ? parseInt(set.reps) : null,
+            weight: set.weight && set.weight.trim() ? parseFloat(set.weight) : null,
+            weightUnit: weightUnit || 'kg',
+          }));
         
+        // 確保至少有一個訓練組
+        if (exercisesData.length === 0) {
+          toast({
+            title: "Error",
+            description: "Please enter at least one set of training data",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        console.log('Submitting exercises:', exercisesData); // 調試日誌
+
+        // 計算摘要（用於主欄位顯示）
+        const weights = exercisesData.filter(e => e.weight !== null && e.weight !== undefined).map(e => e.weight || 0);
+        const maxWeight = weights.length > 0 ? Math.max(...weights) : 0;
+        const totalSets = exercisesData.reduce((sum, e) => sum + (e.sets || 0), 0);
+        const firstReps = exercisesData[0]?.reps || null;
+        
+        const requestBody = {
+          workoutType: 'STRENGTH',
+          exerciseName: exerciseName.trim(),
+          duration: 30,
+          calories: 0,
+          exercises: exercisesData, // ✅ 發送完整陣列（不是字符串）
+          sets: totalSets,
+          reps: firstReps,
+          weight: maxWeight > 0 ? maxWeight : null,
+          weightUnit: 'kg',
+          notes: workoutNotes || null,
+          performedAt: editingWorkoutPerformedAt || new Date().toISOString(),
+        };
+
+        console.log('[Dashboard] Submitting STRENGTH workout with all sets:', requestBody);
+        console.log('[Dashboard] Number of sets being saved:', exercisesData.length);
+        console.log('[Dashboard] Max weight:', maxWeight, 'Total sets:', totalSets);
+
         const response = await fetch(url, {
           method,
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({
-            workoutType: 'STRENGTH',
-            exerciseName,
-            duration: 0,
-            calories: 0,
-            sets: lastSet.sets ? parseInt(lastSet.sets) : null,
-            reps: lastSet.reps ? parseInt(lastSet.reps) : null,
-            weight: lastSet.weight ? parseFloat(lastSet.weight) : null,
-            weightUnit: lastSet.weight ? weightUnit : 'kg',
-            notes: workoutNotes || null,
-            performedAt: new Date().toISOString(),
-          }),
+          body: JSON.stringify(requestBody),
         });
 
         if (!response.ok) {
           const error = await response.json();
+          console.error('[Dashboard] STRENGTH workout submission failed:', error);
           throw new Error(error.error || 'Failed to save strength training');
         }
+
+        const result = await response.json();
+        console.log('Workout saved:', result);
       }
-      // 如果是有氧運動
+      // 有氧訓練邏輯
       else if (cardioType && cardioDuration) {
         // 如果選擇了 "Other"，使用自定義輸入；否則使用選擇的類型
         const finalCardioType = cardioType === 'Other' ? cardioCustomType : cardioType;
         
-        if (!finalCardioType) {
+        if (!finalCardioType || !finalCardioType.trim()) {
           toast({
             title: "Error",
             description: "Please enter custom cardio type",
@@ -209,33 +233,41 @@ export default function Dashboard() {
           return;
         }
 
+        const requestBody = {
+          workoutType: 'CARDIO', // ✅ 確保是 'CARDIO' 不是其他值
+          exerciseName: finalCardioType.trim(), // ✅ 使用最終的 cardio 類型
+          duration: parseInt(cardioDuration) || 0, // ✅ 確保有 duration
+          calories: 0,
+          sets: null,
+          reps: null,
+          weight: null,
+          weightUnit: 'kg',
+          notes: workoutNotes || null,
+          performedAt: editingWorkoutPerformedAt || new Date().toISOString(),
+        };
+
+        console.log('[Dashboard] Submitting CARDIO workout:', requestBody);
+
         const response = await fetch(url, {
           method,
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({
-            workoutType: 'CARDIO',
-            exerciseName: finalCardioType,
-            duration: parseInt(cardioDuration),
-            calories: 0,
-            sets: null,
-            reps: null,
-            weight: null,
-            weightUnit: 'kg',
-            notes: workoutNotes || null,
-            performedAt: new Date().toISOString(),
-          }),
+          body: JSON.stringify(requestBody),
         });
 
         if (!response.ok) {
           const error = await response.json();
+          console.error('[Dashboard] CARDIO workout submission failed:', error);
           throw new Error(error.error || 'Failed to save cardio');
         }
+
+        const result = await response.json();
+        console.log('✅ Cardio saved:', result);
       }
 
-      await loadWorkouts();
       await loadPersonalBests();
-      queryClient.invalidateQueries({ queryKey: ["/api/workouts", today] });
+      // 立即刷新 workouts 查詢
+      await queryClient.refetchQueries({ queryKey: ["/api/workouts", today] });
       queryClient.invalidateQueries({ queryKey: ["/api/summary/daily", today] });
 
       resetWorkoutForm();
@@ -266,9 +298,9 @@ export default function Dashboard() {
 
       if (!response.ok) throw new Error('Failed to delete workout');
 
-      await loadWorkouts();
       await loadPersonalBests();
-      queryClient.invalidateQueries({ queryKey: ["/api/workouts", today] });
+      // 立即刷新 workouts 查詢
+      await queryClient.refetchQueries({ queryKey: ["/api/workouts", today] });
       queryClient.invalidateQueries({ queryKey: ["/api/summary/daily", today] });
 
       toast({
@@ -287,14 +319,14 @@ export default function Dashboard() {
 
   const handleEditWorkout = (workout: any) => {
     // 處理 exercises JSON（如果存在）
-    let exerciseData = null;
+    let exercisesArray: any[] = [];
     if (workout.exercises) {
       try {
         const exercises = typeof workout.exercises === 'string' 
           ? JSON.parse(workout.exercises) 
           : workout.exercises;
         if (Array.isArray(exercises) && exercises.length > 0) {
-          exerciseData = exercises[0];
+          exercisesArray = exercises;
         }
       } catch (e) {
         console.error('Error parsing exercises:', e);
@@ -304,16 +336,25 @@ export default function Dashboard() {
     const workoutType = workout.workout_type || workout.workoutType || '';
 
     if (workoutType === 'STRENGTH' || workoutType === 'Strength Training') {
-      setExerciseName(exerciseData?.exerciseName || workout.exercise_name || '');
-      setTrainingSets([
-        {
-          id: '1',
-          sets: exerciseData?.sets?.toString() || workout.sets?.toString() || '',
-          reps: exerciseData?.reps?.toString() || workout.reps?.toString() || '',
-          weight: exerciseData?.weight?.toString() || workout.weight?.toString() || ''
-        }
-      ]);
-      setWeightUnit(exerciseData?.weightUnit || workout.weight_unit || 'kg');
+      const exerciseName = exercisesArray[0]?.exerciseName || workout.exercise_name || '';
+      setExerciseName(exerciseName);
+      
+      // ✅ 還原所有訓練組
+      const trainingSetsData = exercisesArray.length > 0
+        ? exercisesArray.map((ex, idx) => ({
+            id: (idx + 1).toString(),
+            sets: ex.sets?.toString() || '',
+            reps: ex.reps?.toString() || '',
+            weight: ex.weight?.toString() || ''
+          }))
+        : [{ id: '1', sets: '', reps: '', weight: '' }];
+      
+      setTrainingSets(trainingSetsData.length > 0 
+        ? trainingSetsData 
+        : [{ id: '1', sets: '', reps: '', weight: '' }]
+      );
+      setWeightUnit(exercisesArray[0]?.weightUnit || workout.weight_unit || 'kg');
+      
       setCardioType('');
       setCardioDuration('');
     } else if (workoutType === 'CARDIO' || workoutType === 'Cardio') {
@@ -323,7 +364,7 @@ export default function Dashboard() {
       
       // 如果運動名稱不在預設列表中，設置為 "Other" 並填充自定義欄位
       const presetCardioTypes = ['Running', 'Cycling', 'Swimming', 'Rowing', 'Jumping Rope'];
-      const exerciseName = exerciseData?.exerciseName || workout.exercise_name || '';
+      const exerciseName = exercisesArray[0]?.exerciseName || workout.exercise_name || '';
       
       if (presetCardioTypes.includes(exerciseName)) {
         setCardioType(exerciseName);
@@ -338,6 +379,9 @@ export default function Dashboard() {
 
     setWorkoutNotes(workout.notes || '');
     setEditingWorkoutId(workout.id);
+    // 保存原始的 performedAt
+    const originalPerformedAt = workout.performed_at || workout.date;
+    setEditingWorkoutPerformedAt(originalPerformedAt ? new Date(originalPerformedAt).toISOString() : null);
     setShowWorkoutForm(true);
   };
 
@@ -366,13 +410,62 @@ export default function Dashboard() {
   const { data: workouts = [], isLoading: workoutsLoading } = useQuery<Workout[]>({
     queryKey: ["/api/workouts", today],
     enabled: isAuthenticated,
+    queryFn: async () => {
+      try {
+        console.log('📋 Fetching workouts…');
+        
+        // 先獲取所有訓練
+        const response = await fetch('/api/workouts', {
+          credentials: 'include'
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch workouts');
+        }
+        
+        const allWorkouts = await response.json();
+        console.log(`✅ Fetched ${allWorkouts.length} total workouts`);
+        
+        // 顯示所有訓練的時間戳
+        allWorkouts.forEach((w: any, idx: number) => {
+          console.log(`  [${idx}] ${w.exercise_name || w.name} - ${w.performed_at}`);
+        });
+        
+        // 前端篩選今日訓練
+        const todayWorkouts = allWorkouts.filter((workout: any) => {
+          if (!workout.performed_at) {
+            console.warn('⚠️ Workout missing performed_at');
+            return false;
+          }
+          
+          const workoutDate = new Date(workout.performed_at);
+          const workoutDateStr = format(workoutDate, 'yyyy-MM-dd');
+          
+          const matches = workoutDateStr === today;
+          if (matches) {
+            console.log(`✓ Match found: ${workoutDateStr}`);
+          }
+          
+          return matches;
+        });
+        
+        console.log(`🎯 Found ${todayWorkouts.length} workouts for today (${today})`);
+        return todayWorkouts;
+        
+      } catch (error) {
+        console.error('❌ Error fetching workouts:', error);
+        return [];
+      }
+    },
+    staleTime: 0,
+    refetchOnMount: true,
   });
 
   // 訓練功能狀態
-  const [allWorkouts, setAllWorkouts] = useState<any[]>([]);
   const [personalBests, setPersonalBests] = useState<any[]>([]);
   const [showWorkoutForm, setShowWorkoutForm] = useState(false);
   const [editingWorkoutId, setEditingWorkoutId] = useState<string | number | null>(null);
+  const [editingWorkoutPerformedAt, setEditingWorkoutPerformedAt] = useState<string | null>(null);
   
   // Strength Training fields
   const [exerciseName, setExerciseName] = useState('');
@@ -907,28 +1000,33 @@ export default function Dashboard() {
             ) : (
               <div className="space-y-3">
                 {workouts.map((workout) => {
-                  // 解析 exercises JSON（如果存在）
-                  let exerciseData = null;
+                  // 解析 exercises JSON
+                  let allExercises: any[] = [];
                   if (workout.exercises) {
                     try {
-                      const exercises = typeof workout.exercises === 'string' 
-                        ? JSON.parse(workout.exercises) 
+                      // 確保正確解析（如果是字符串則 JSON.parse）
+                      const ex = typeof workout.exercises === 'string'
+                        ? JSON.parse(workout.exercises)
                         : workout.exercises;
-                      if (Array.isArray(exercises) && exercises.length > 0) {
-                        exerciseData = exercises[0];
+                      if (Array.isArray(ex)) {
+                        allExercises = ex;
                       }
                     } catch (e) {
                       console.error('Error parsing exercises:', e);
                     }
                   }
 
-                  const workoutType = workout.workout_type || workout.workoutType;
-                  const exerciseName = exerciseData?.exerciseName || workout.exercise_name;
-                  const sets = exerciseData?.sets || workout.sets;
-                  const reps = exerciseData?.reps || workout.reps;
-                  const weight = exerciseData?.weight || workout.weight;
-                  const weightUnit = exerciseData?.weightUnit || workout.weight_unit || 'kg';
+                  const workoutType = workout.workout_type || workout.workoutType || '';
+                  const exerciseName = allExercises[0]?.exerciseName || workout.exercise_name || workout.exerciseName;
+                  const sets = workout.sets;
+                  const reps = workout.reps;
+                  const weight = workout.weight;
+                  const weightUnit = workout.weight_unit || workout.weightUnit || 'kg';
                   const duration = workout.duration || workout.durationMinutes;
+
+                  // 檢查是否為力量訓練或 Cardio
+                  const isStrength = workoutType === 'STRENGTH' || workoutType === 'Strength Training';
+                  const isCardio = workoutType === 'CARDIO' || workoutType === 'Cardio';
 
                   return (
                     <div
@@ -939,23 +1037,37 @@ export default function Dashboard() {
                         <h4 className="font-semibold text-gray-800">
                           {exerciseName || workoutType}
                         </h4>
-                        <div className="flex gap-3 text-sm text-gray-600 mt-1 flex-wrap">
-                          {workoutType === 'Strength Training' && (
-                            <>
+                        <div className="mt-2 space-y-2">
+                          {/* 顯示摘要 */}
+                          {isStrength && (
+                            <div className="text-sm text-gray-600 mt-2 flex gap-3">
                               {sets && <span>📊 {sets} sets</span>}
                               {reps && <span>🔄 {reps} reps</span>}
-                              {weight && (
-                                <span>⚖️ {weight}{weightUnit}</span>
-                              )}
-                            </>
+                              {weight && <span>⚖️ {weight} {weightUnit}</span>}
+                            </div>
                           )}
-                          {workoutType === 'Cardio' && (
-                            <>
+
+                          {/* 顯示詳細訓練組（如果有多個） */}
+                          {allExercises.length > 0 && (
+                            <div className="mt-3 text-xs bg-white p-2 rounded border-l-2 border-blue-400">
+                              <div className="font-semibold text-gray-700 mb-1">Training Sets:</div>
+                              {allExercises.map((ex, idx) => (
+                                <div key={idx} className="text-gray-600">
+                                  Set {idx + 1}: {ex.sets || 0}×{ex.reps || 0} @ {ex.weight || 0}{ex.weightUnit || 'kg'}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+
+                          {isCardio && (
+                            <div className="text-sm text-gray-600 mt-2 flex gap-3">
+                              <span>🏃 {exerciseName}</span>
                               {duration && <span>⏱️ {duration} min</span>}
-                            </>
+                            </div>
                           )}
+
                           {workout.notes && (
-                            <span className="text-gray-500 italic">💭 {workout.notes}</span>
+                            <p className="text-sm text-gray-500 mt-2">💭 {workout.notes}</p>
                           )}
                         </div>
                       </div>
