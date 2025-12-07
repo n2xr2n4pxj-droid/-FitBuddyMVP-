@@ -3,6 +3,7 @@ import session from "express-session";
 import passport from "passport";
 import { Strategy as LocalStrategy } from "passport-local";
 import crypto from "crypto";
+import jwt from "jsonwebtoken";
 
 import { db, pool } from "./db";
 import { users, type User } from "@shared/schema";
@@ -86,8 +87,9 @@ export async function setupAuth(app: Express) {
   passport.deserializeUser(async (id: string, done) => {
     try {
       // 使用原始 SQL 查詢，避免 Drizzle schema 檢查問題
+      // 包含 role 字段以支持教練系統
       const result = await pool.query(
-        `SELECT id, email, password_hash, first_name, last_name, created_at, updated_at FROM users WHERE id = $1 LIMIT 1`,
+        `SELECT id, email, password_hash, first_name, last_name, role, created_at, updated_at FROM users WHERE id = $1 LIMIT 1`,
         [id]
       );
       
@@ -97,6 +99,7 @@ export async function setupAuth(app: Express) {
         passwordHash: result.rows[0].password_hash,
         firstName: result.rows[0].first_name,
         lastName: result.rows[0].last_name,
+        role: result.rows[0].role, // 包含 role 字段
         createdAt: result.rows[0].created_at,
         updatedAt: result.rows[0].updated_at,
       } : null;
@@ -305,7 +308,16 @@ export async function setupAuth(app: Express) {
             .json({ message: "Failed to establish session after register" });
         }
         console.log("[Register] Registration successful");
-        return res.status(201).json({ user: sanitizeUser(newUser as any) });
+        // 生成 JWT token
+        const token = generateJWT({
+          id: newUser.id,
+          email: newUser.email,
+          role: 'client', // 新注册用户默认为 client
+        });
+        return res.status(201).json({ 
+          user: sanitizeUser(newUser as any),
+          token 
+        });
       });
     } catch (error: any) {
       console.error("[Register] Error:", error);
@@ -363,7 +375,16 @@ export async function setupAuth(app: Express) {
               });
         }
           console.log("[Login] Login successful");
-        return res.json({ user: sanitizeUser(user as User) });
+        // 生成 JWT token
+        const token = generateJWT({
+          id: user.id,
+          email: user.email,
+          role: (user as any).role || 'client',
+        });
+        return res.json({ 
+          user: sanitizeUser(user as User),
+          token 
+        });
       });
     })(req, res, next);
     } catch (error: any) {
@@ -385,6 +406,100 @@ export async function setupAuth(app: Express) {
     });
   });
 }
+
+// JWT Secret - 從環境變量獲取，默認使用開發密鑰
+const JWT_SECRET = process.env.JWT_SECRET || "dev-jwt-secret-change-in-production";
+
+// 🔧 生成 JWT Token
+export function generateJWT(user: { id: string; email: string; role?: string }): string {
+  const payload = {
+    sub: user.id,
+    email: user.email,
+    role: user.role || 'client',
+  };
+  
+  return jwt.sign(payload, JWT_SECRET, {
+    expiresIn: '7d', // 7 天過期
+  });
+}
+
+// 🔧 驗證 JWT Token 中間件（支持 Bearer token 和 Session 混合）
+export const verifyJWT: RequestHandler = async (req: any, res, next) => {
+  try {
+    // 1. 優先檢查 Session 認證（向後兼容）
+    if (req.isAuthenticated && req.isAuthenticated()) {
+      // Session 認證成功，設置 req.user（如果還沒有）
+      if (!req.user && req.session?.passport?.user) {
+        // 從 session 中恢復用戶信息
+        const userId = req.session.passport.user;
+        const result = await pool.query(
+          `SELECT id, email, first_name, last_name, role FROM users WHERE id = $1 LIMIT 1`,
+          [userId]
+        );
+        if (result.rows.length > 0) {
+          req.user = {
+            id: result.rows[0].id,
+            email: result.rows[0].email,
+            firstName: result.rows[0].first_name,
+            lastName: result.rows[0].last_name,
+            role: result.rows[0].role,
+            claims: {
+              sub: result.rows[0].id,
+              email: result.rows[0].email,
+              role: result.rows[0].role,
+            },
+          };
+        }
+      }
+      return next();
+    }
+
+    // 2. 檢查 Bearer Token（JWT）
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const token = authHeader.substring(7); // 移除 "Bearer " 前綴
+      
+      try {
+        const decoded = jwt.verify(token, JWT_SECRET) as any;
+        
+        // 從數據庫獲取用戶信息以確保用戶仍然存在
+        const result = await pool.query(
+          `SELECT id, email, first_name, last_name, role FROM users WHERE id = $1 LIMIT 1`,
+          [decoded.sub]
+        );
+        
+        if (result.rows.length === 0) {
+          return res.status(401).json({ message: "User not found" });
+        }
+        
+        // 設置 req.user 以統一格式
+        req.user = {
+          id: result.rows[0].id,
+          email: result.rows[0].email,
+          firstName: result.rows[0].first_name,
+          lastName: result.rows[0].last_name,
+          role: result.rows[0].role,
+          claims: {
+            sub: result.rows[0].id,
+            email: result.rows[0].email,
+            role: result.rows[0].role,
+          },
+        };
+        
+        return next();
+      } catch (jwtError: any) {
+        console.log("[verifyJWT] JWT verification failed:", jwtError.message);
+        return res.status(401).json({ message: "Invalid or expired token" });
+      }
+    }
+
+    // 3. 兩種認證方式都失敗
+    return res.status(401).json({ message: "Unauthorized" });
+  } catch (error) {
+    console.error("[verifyJWT] Error:", error);
+    return res.status(500).json({ message: "Authentication error" });
+  }
+};
 
 export const isAuthenticated: RequestHandler = (req, res, next) => {
   if (req.isAuthenticated && req.isAuthenticated()) {
