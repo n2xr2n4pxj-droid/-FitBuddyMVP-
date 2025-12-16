@@ -11,7 +11,7 @@ import { eq } from "drizzle-orm";
 
 // --- Local email/password auth for development ---
 
-function hashPassword(password: string, salt?: string): string {
+export function hashPassword(password: string, salt?: string): string {
   const actualSalt = salt ?? crypto.randomBytes(16).toString("hex");
   const hash = crypto
     .pbkdf2Sync(password, actualSalt, 10000, 64, "sha512")
@@ -19,7 +19,7 @@ function hashPassword(password: string, salt?: string): string {
   return `${actualSalt}:${hash}`;
 }
 
-function verifyPassword(password: string, stored?: string | null): boolean {
+export function verifyPassword(password: string, stored?: string | null): boolean {
   if (!stored) {
     console.log("[verifyPassword] No stored password hash provided");
     return false;
@@ -89,7 +89,7 @@ export async function setupAuth(app: Express) {
       // 使用原始 SQL 查詢，避免 Drizzle schema 檢查問題
       // 包含 role 字段以支持教練系統
       const result = await pool.query(
-        `SELECT id, email, password_hash, first_name, last_name, role, created_at, updated_at FROM users WHERE id = $1 LIMIT 1`,
+        `SELECT id, email, password_hash, first_name, last_name, role, created_at, updated_at FROM "User" WHERE id = $1 LIMIT 1`,
         [id]
       );
       
@@ -137,7 +137,7 @@ export async function setupAuth(app: Express) {
           // 使用原始 SQL 查詢，避免 Drizzle schema 檢查問題
           console.log("[LocalStrategy] Executing SQL query for email:", normalizedEmail);
           const result = await pool.query(
-            `SELECT id, email, password_hash, first_name, last_name, created_at, updated_at FROM users WHERE LOWER(TRIM(email)) = $1 LIMIT 1`,
+            `SELECT id, email, password_hash, first_name, last_name, created_at, updated_at FROM "User" WHERE LOWER(TRIM(email)) = $1 LIMIT 1`,
             [normalizedEmail]
           );
           
@@ -153,7 +153,7 @@ export async function setupAuth(app: Express) {
             console.log("[LocalStrategy] No user found for email:", normalizedEmail);
             // 調試：檢查數據庫中的所有用戶 email
             const allUsersResult = await pool.query(
-              `SELECT id, email, LOWER(TRIM(email)) as normalized_email FROM users LIMIT 10`
+              `SELECT id, email, LOWER(TRIM(email)) as normalized_email FROM "User" LIMIT 10`
             );
             console.log("[LocalStrategy] All users in database:", allUsersResult.rows.map(r => ({
               id: r.id,
@@ -244,7 +244,7 @@ export async function setupAuth(app: Express) {
       console.log("[Register] Checking for existing user...");
       // 使用原始 SQL 查詢檢查用戶是否存在
       const existingResult = await pool.query(
-        `SELECT id FROM users WHERE LOWER(TRIM(email)) = $1 LIMIT 1`,
+        `SELECT id FROM "User" WHERE LOWER(TRIM(email)) = $1 LIMIT 1`,
         [normalizedEmail]
       );
       
@@ -258,30 +258,21 @@ export async function setupAuth(app: Express) {
 
       console.log("[Register] Inserting new user...");
       // 使用原始 SQL 查詢插入用戶，避免 Drizzle schema 檢查問題
-      // 注意：數據庫要求 username 欄位，我們使用 email 作為 username
-      const username = normalizedEmail.split('@')[0]; // 使用 email 的用戶名部分作為 username
-      console.log("[Register] Generated username:", username);
-      
-      if (!username || username.trim() === '') {
-        console.error("[Register] Invalid username generated from email:", normalizedEmail);
-        return res.status(400).json({ message: "Invalid email format" });
-      }
-      
-      const insertSql = `INSERT INTO users (email, username, password_hash, first_name, last_name, created_at, updated_at) 
-         VALUES ($1, $2, $3, $4, $5, NOW(), NOW()) 
-         RETURNING id, email, password_hash, first_name, last_name, created_at, updated_at`;
+      const insertSql = `INSERT INTO "User" (email, "passwordHash", "firstName", "lastName", role) 
+         VALUES ($1, $2, $3, $4, $5) 
+         RETURNING id, email, "passwordHash", "firstName", "lastName", role`;
       console.log("[Register] SQL query:", insertSql);
       console.log("[Register] SQL parameters:", {
         email: normalizedEmail,
-        username: username,
         passwordHash: passwordHash ? `${passwordHash.substring(0, 20)}...` : 'null',
         firstName: firstName || null,
         lastName: lastName || null,
+        role: 'client',
       });
       
       const insertResult = await pool.query(
         insertSql,
-        [normalizedEmail, username, passwordHash, firstName || null, lastName || null]
+        [normalizedEmail, passwordHash, firstName || null, lastName || null, 'client']
       );
 
       if (!insertResult.rows || insertResult.rows.length === 0) {
@@ -292,11 +283,10 @@ export async function setupAuth(app: Express) {
       const newUser = {
         id: insertResult.rows[0].id,
         email: insertResult.rows[0].email,
-        passwordHash: insertResult.rows[0].password_hash,
-        firstName: insertResult.rows[0].first_name,
-        lastName: insertResult.rows[0].last_name,
-        createdAt: insertResult.rows[0].created_at,
-        updatedAt: insertResult.rows[0].updated_at,
+        passwordHash: insertResult.rows[0].passwordHash,
+        firstName: insertResult.rows[0].firstName,
+        lastName: insertResult.rows[0].lastName,
+        role: insertResult.rows[0].role || 'client',
       };
 
       console.log("[Register] User created successfully, establishing session...");
@@ -312,7 +302,7 @@ export async function setupAuth(app: Express) {
         const token = generateJWT({
           id: newUser.id,
           email: newUser.email,
-          role: 'client', // 新注册用户默认为 client
+          role: newUser.role || 'client',
         });
         return res.status(201).json({ 
           user: sanitizeUser(newUser as any),
@@ -376,6 +366,11 @@ export async function setupAuth(app: Express) {
         }
           console.log("[Login] Login successful");
         // 生成 JWT token
+        if (!user.email) {
+          return res.status(500).json({ 
+            message: "User email is missing",
+          });
+        }
         const token = generateJWT({
           id: user.id,
           email: user.email,
@@ -433,7 +428,7 @@ export const verifyJWT: RequestHandler = async (req: any, res, next) => {
         // 從 session 中恢復用戶信息
         const userId = req.session.passport.user;
         const result = await pool.query(
-          `SELECT id, email, first_name, last_name, role FROM users WHERE id = $1 LIMIT 1`,
+          `SELECT id, email, first_name, last_name, role FROM "User" WHERE id = $1 LIMIT 1`,
           [userId]
         );
         if (result.rows.length > 0) {
@@ -464,7 +459,7 @@ export const verifyJWT: RequestHandler = async (req: any, res, next) => {
         
         // 從數據庫獲取用戶信息以確保用戶仍然存在
         const result = await pool.query(
-          `SELECT id, email, first_name, last_name, role FROM users WHERE id = $1 LIMIT 1`,
+          `SELECT id, email, first_name, last_name, role FROM "User" WHERE id = $1 LIMIT 1`,
           [decoded.sub]
         );
         
