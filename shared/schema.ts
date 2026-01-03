@@ -6,6 +6,7 @@ import {
   timestamp,
   integer,
   decimal,
+  boolean,
   index,
   jsonb,
 } from "drizzle-orm/pg-core";
@@ -26,38 +27,45 @@ export const sessions = pgTable(
 
 // User storage table (required for Replit Auth)
 export const users = pgTable("users", {
-  id: varchar("id")
-    .primaryKey()
-    .default(sql`gen_random_uuid()`),
-  email: varchar("email").unique(),
+  // 注意：數據庫表中 id 是 integer (serial)，不是 varchar
+  id: integer("id").primaryKey(),
+  email: varchar("email").unique().notNull(),
   // Local auth password hash (only used for email/password login)
-  passwordHash: varchar("password_hash"),
+  passwordHash: varchar("password_hash").notNull(),
+  // Role: 'client' or 'coach'
+  role: text("role").default("client").notNull(),
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
-  profileImageUrl: varchar("profile_image_url"),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
+  avatar: varchar("avatar"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+
+  // Email 驗證（實際數據庫表中存在）
+  emailVerified: boolean("email_verified").default(false).notNull(),
+  emailVerificationToken: text("email_verification_token"),
+  emailVerificationExpires: integer("email_verification_expires"), // BIGINT 存儲時間戳（毫秒）
 
   // TDEE and Body Metrics
-  gender: varchar("gender", { length: 20 }),
-  age: integer("age"),
-  heightCm: decimal("height_cm", { precision: 10, scale: 2 }),
-  currentWeightKg: decimal("current_weight_kg", { precision: 10, scale: 2 }),
-  bodyFatPercentage: decimal("body_fat_percentage", { precision: 5, scale: 2 }),
+  // 注意：以下字段在實際數據庫表中不存在，已註釋掉以避免插入錯誤
+  // gender: varchar("gender", { length: 20 }),
+  // age: integer("age"),
+  // heightCm: decimal("height_cm", { precision: 10, scale: 2 }),
+  // currentWeightKg: decimal("current_weight_kg", { precision: 10, scale: 2 }),
+  // bodyFatPercentage: decimal("body_fat_percentage", { precision: 5, scale: 2 }),
 
   // TDEE Calculations
-  activityLevel: varchar("activity_level", { length: 20 }), // sedentary, light, moderate, very_active, extra_active
-  bmr: decimal("bmr", { precision: 10, scale: 2 }), // Basal Metabolic Rate
-  tdee: decimal("tdee", { precision: 10, scale: 2 }), // Total Daily Energy Expenditure
+  // activityLevel: varchar("activity_level", { length: 20 }), // sedentary, light, moderate, very_active, extra_active
+  // bmr: decimal("bmr", { precision: 10, scale: 2 }), // Basal Metabolic Rate
+  // tdee: decimal("tdee", { precision: 10, scale: 2 }), // Total Daily Energy Expenditure
 
   // Nutrition Goals
-  goalType: varchar("goal_type", { length: 20 }), // bulk, cut, maintain, aggressive_cut, custom
-  goalCalories: integer("goal_calories"),
-  proteinG: integer("protein_g"),
-  carbsG: integer("carbs_g"),
-  fatG: integer("fat_g"),
+  // goalType: varchar("goal_type", { length: 20 }), // bulk, cut, maintain, aggressive_cut, custom
+  // goalCalories: integer("goal_calories"),
+  // proteinG: integer("protein_g"),
+  // carbsG: integer("carbs_g"),
+  // fatG: integer("fat_g"),
 
-  lastTdeeUpdate: timestamp("last_tdee_update"),
+  // lastTdeeUpdate: timestamp("last_tdee_update"),
 });
 
 // Meals table - tracks food intake
@@ -217,7 +225,7 @@ export const upsertUserSchema = createInsertSchema(users).pick({
   email: true,
   firstName: true,
   lastName: true,
-  profileImageUrl: true,
+  avatar: true,
 });
 
 // TDEE calculation schema

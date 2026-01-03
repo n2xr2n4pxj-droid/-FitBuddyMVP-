@@ -5,6 +5,8 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { AlertCircle } from "lucide-react";
 import { queryClient } from "@/lib/queryClient";
 
 export default function AuthPage() {
@@ -17,6 +19,7 @@ export default function AuthPage() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [needsVerification, setNeedsVerification] = useState(false); // ✅ 郵箱驗證狀態
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -25,10 +28,15 @@ export default function AuthPage() {
     try {
       const endpoint =
         mode === "login" ? "/api/auth/login" : "/api/auth/register";
-      const body: any = { email, password };
+      // ✅ 修復：確保 body 結構正確，沒有嵌套
+      const body: any = { 
+        email, 
+        password 
+      };
       if (mode === "register") {
         body.firstName = firstName || undefined;
         body.lastName = lastName || undefined;
+        body.role = "client"; // 默認角色為 client
       }
 
       const res = await fetch(endpoint, {
@@ -43,30 +51,59 @@ export default function AuthPage() {
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        toast({
-          title: mode === "login" ? "登入失敗" : "註冊失敗",
-          description: data?.message || "請稍後再試",
-          variant: "destructive",
-        });
+        // ✅ 檢查是否需要郵箱驗證
+        if (res.status === 403 && data?.needsVerification) {
+          setNeedsVerification(true);
+          toast({
+            title: "郵箱未驗證",
+            description: "你的郵箱未驗證。請檢查郵件或點擊下方按鈕重新發送驗證郵件。",
+            variant: "destructive",
+          });
+        } else {
+          setNeedsVerification(false);
+          toast({
+            title: mode === "login" ? "登入失敗" : "註冊失敗",
+            description: data?.error || data?.message || "請稍後再試",
+            variant: "destructive",
+          });
+        }
         return;
       }
 
-      // 使認證查詢失效，強制重新獲取用戶信息
-      await queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
-      
-      // 等待查詢更新
-      await queryClient.refetchQueries({ queryKey: ["/api/auth/user"] });
+      // ✅ 處理登入和註冊的不同邏輯
+      if (mode === "login") {
+        // 登入成功，清除驗證狀態
+        setNeedsVerification(false);
 
-      toast({
-        title: mode === "login" ? "登入成功" : "註冊成功",
-        description:
-          mode === "login"
-            ? "歡迎回來！"
-            : "帳號已建立並自動登入，為你導向儀表板。",
-      });
+        // 使認證查詢失效，強制重新獲取用戶信息
+        await queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+        
+        // 等待查詢更新
+        await queryClient.refetchQueries({ queryKey: ["/api/auth/user"] });
 
-      // 使用 window.location 強制刷新，確保認證狀態更新
-      window.location.href = "/";
+        toast({
+          title: "登入成功",
+          description: "歡迎回來！",
+        });
+
+        // 使用 window.location 強制刷新，確保認證狀態更新
+        window.location.href = "/";
+      } else {
+        // ✅ 註冊成功，跳轉到驗證提示頁面
+        toast({
+          title: "註冊成功",
+          description: "請檢查郵箱並點擊驗證鏈接",
+        });
+
+        // ✅ 清除表單數據
+        setEmail("");
+        setPassword("");
+        setFirstName("");
+        setLastName("");
+
+        // ✅ 跳轉到驗證提示頁面
+        setLocation(`/verify-email-prompt?email=${encodeURIComponent(email)}`);
+      }
     } catch (error) {
       console.error("Auth error:", error);
       toast({
@@ -92,6 +129,25 @@ export default function AuthPage() {
         </div>
 
         <form className="space-y-4" onSubmit={handleSubmit}>
+          {/* ✅ 郵箱驗證提示 */}
+          {mode === "login" && needsVerification && (
+            <Alert variant="default">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                <div className="space-y-2">
+                  <p>你的郵箱未驗證。請檢查郵件或</p>
+                  <button
+                    type="button"
+                    onClick={() => setLocation("/resend-verification")}
+                    className="text-primary hover:underline font-semibold"
+                  >
+                    重新發送驗證郵件
+                  </button>
+                </div>
+              </AlertDescription>
+            </Alert>
+          )}
+
           {mode === "register" && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1.5">

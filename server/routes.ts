@@ -8,13 +8,39 @@ import { calculateTDEE, calculateMacros } from "./tdee";
 import { db } from "./db";
 import { eq, and } from "drizzle-orm";
 import workoutRoutes from "./routes/workouts";
+import coachRoutes from "./routes/coaches";
+import workoutPlanRoutes from "./routes/workout-plans";
+import authRoutes from "./routes/auth";
+import invitationRoutes from "./routes/invitations";
+import emailAdminRouter from "./routes/emailAdminRoutes";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
   await setupAuth(app);
 
+  // Register auth routes
+  app.use("/api", authRoutes);
+
   // Register workout routes
   app.use("/api", workoutRoutes);
+  
+  // Register coach routes
+  // Routes: /api/coaches/add-client, /api/coaches/invite, /api/coaches/clients, etc.
+  app.use("/api", coachRoutes);
+  
+  // Register workout plan routes
+  app.use("/api", workoutPlanRoutes);
+  
+  // Register invitation routes (v1 API - recommended)
+  // Routes: /api/v1/invitations/send, /api/v1/invitations/status/:code, /api/v1/invitations/accept/:code, etc.
+  app.use("/api/v1/invitations", invitationRoutes);
+  
+  // Register invitation routes (legacy - for backward compatibility)
+  // Routes: /api/invitations/send, /api/invitations/status/:code, etc.
+  app.use("/api/invitations", invitationRoutes);
+  
+  // Admin email routes
+  app.use("/api/admin/email", emailAdminRouter);
 
   // Auth routes
   app.get("/api/auth/user", async (req: any, res) => {
@@ -23,9 +49,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json(null);
       }
 
-      // 直接從 session 中回傳使用者資訊，但移除敏感欄位
-      const { passwordHash, ...safeUser } = req.user || {};
-      res.json(safeUser || null);
+      // 從數據庫重新查詢用戶信息，確保獲取最新的 role 字段
+      const userId = req.user?.claims?.sub || req.user?.id;
+      if (!userId) {
+        return res.json(null);
+      }
+
+      // 從數據庫查詢最新的用戶信息（包括 role）
+      const { pool } = await import("./db");
+      const result = await pool.query(
+        `SELECT id, email, first_name, last_name, role, created_at FROM users WHERE id = $1 LIMIT 1`,
+        [userId]
+      );
+
+      if (result.rows.length === 0) {
+        return res.json(null);
+      }
+
+      const dbUser = result.rows[0];
+      console.log('[GET /api/auth/user] Raw DB user:', dbUser);
+      
+      // 轉換字段名從 snake_case 到 camelCase，並確保包含 role
+      const user = {
+        id: dbUser.id,
+        email: dbUser.email,
+        firstName: dbUser.first_name,
+        lastName: dbUser.last_name,
+        role: dbUser.role, // 確保包含 role 字段
+        createdAt: dbUser.created_at,
+      };
+      
+      console.log('[GET /api/auth/user] Returning user with role:', user.role);
+      console.log('[GET /api/auth/user] Full user object:', JSON.stringify(user, null, 2));
+      
+      // 禁用緩存，確保總是返回最新數據
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      
+      res.json(user);
     } catch (error) {
       console.error("Error fetching user:", error);
       res.status(500).json({ message: "Failed to fetch user" });

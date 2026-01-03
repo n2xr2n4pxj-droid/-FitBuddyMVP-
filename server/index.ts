@@ -1,9 +1,31 @@
-import "dotenv/config";
+import dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+dotenv.config({ path: path.resolve(__dirname, ".env.local") });
+dotenv.config({ path: path.resolve(__dirname, "..", ".env") }); // fallback to root .env
+
+console.log('[DEBUG] from index.ts SENDGRID_API_KEY:', process.env.SENDGRID_API_KEY ? 'SET' : 'MISSING');
+
 import express, { type Request, Response, NextFunction } from "express";
+import { createRequire } from "module";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+// ✅ 認證路由在 server/routes.ts 的 registerRoutes 函數中註冊
+// import authRouter from "./routes/auth"; // 如果需要直接註冊，取消註釋
+
+const require = createRequire(import.meta.url);
+const cors = require("cors");
 
 const app = express();
+
+app.use(cors({
+  origin: 'http://localhost:5173',
+  credentials: true,
+}));
 
 app.use(express.json({
   verify: (req: express.Request, _res, buf) => {
@@ -11,6 +33,21 @@ app.use(express.json({
   }
 }));
 app.use(express.urlencoded({ extended: false }));
+
+// 健康檢查端點
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
+
+// ✅ 認證路由註冊
+// 注意：認證路由在 server/routes.ts 的 registerRoutes 函數中通過以下方式註冊：
+// app.use("/api", authRoutes);
+// 這意味著所有 auth 路由的前綴是 /api/auth/*
+// 如果需要直接在這裡註冊，可以取消下面的註釋：
+// app.use('/api/auth', authRouter);
+
+
+
 
 app.use((req, res, next) => {
   const start = Date.now();

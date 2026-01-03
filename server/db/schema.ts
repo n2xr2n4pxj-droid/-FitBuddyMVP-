@@ -19,12 +19,15 @@ import {
   text, 
   timestamp, 
   integer, 
+  serial,
   real, 
   boolean, 
   pgEnum,
-  index
+  index,
+  uniqueIndex
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
+import { randomUUID } from 'crypto';
 
 // ==========================================
 // 枚舉類型定義
@@ -80,47 +83,54 @@ export const friendRequestStatusEnum = pgEnum('friend_request_status', [
 
 // 用戶表
 export const users = pgTable('users', {
-  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  id: serial('id').primaryKey(),
   email: text('email').unique().notNull(),
-  username: text('username').unique().notNull(),
+  // 注意：數據庫表中沒有 username 列，已從 schema 中移除
   passwordHash: text('password_hash').notNull(),
   
   // 角色與權限
-  role: roleEnum('role').default('USER').notNull(),
+  role: roleEnum('role').notNull().default('USER'),
+  
+  // Email 驗證
+  emailVerified: boolean('email_verified').default(false).notNull(),
+  emailVerificationToken: text('email_verification_token'),
+  emailVerificationExpires: integer('email_verification_expires'), // BIGINT 存儲時間戳（毫秒）
   
   // 個人資料
   firstName: text('first_name'),
   lastName: text('last_name'),
   avatar: text('avatar'),
-  phone: text('phone'),
-  dateOfBirth: timestamp('date_of_birth', { withTimezone: true }),
-  emailVerified: boolean('email_verified').default(false).notNull(),
+  // 注意：以下字段在數據庫表中不存在，已註釋掉
+  // phone: text('phone'),
+  // dateOfBirth: timestamp('date_of_birth', { withTimezone: true }),
   
   // TDEE 相關欄位
-  age: integer('age'),
-  gender: genderEnum('gender'),
-  height: real('height'), // cm
-  weight: real('weight'), // kg
-  bodyFat: real('body_fat'), // %
-  activityLevel: activityLevelEnum('activity_level'),
-  goal: goalTypeEnum('goal'),
+  // 注意：以下字段在數據庫表中不存在，已註釋掉
+  // age: integer('age'),
+  // gender: genderEnum('gender'), // 數據庫表中沒有此列
+  // height: real('height'), // cm
+  // weight: real('weight'), // kg
+  // bodyFat: real('body_fat'), // %
+  // activityLevel: activityLevelEnum('activity_level'),
+  // goal: goalTypeEnum('goal'),
   
   // 計算結果（自動更新）
-  bmr: real('bmr'), // 基礎代謝率
-  tdee: real('tdee'), // 總能量消耗
-  bmi: real('bmi'), // 身體質量指數
-  goalCalories: real('goal_calories'), // 目標卡路里
-  goalProtein: real('goal_protein'), // 目標蛋白質 (g)
-  goalCarbs: real('goal_carbs'), // 目標碳水化合物 (g)
-  goalFat: real('goal_fat'), // 目標脂肪 (g)
+  // 注意：以下字段在數據庫表中不存在，已註釋掉
+  // bmr: real('bmr'), // 基礎代謝率
+  // tdee: real('tdee'), // 總能量消耗
+  // bmi: real('bmi'), // 身體質量指數
+  // goalCalories: real('goal_calories'), // 目標卡路里
+  // goalProtein: real('goal_protein'), // 目標蛋白質 (g)
+  // goalCarbs: real('goal_carbs'), // 目標碳水化合物 (g)
+  // goalFat: real('goal_fat'), // 目標脂肪 (g)
   
   // 時間戳
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-  lastActive: timestamp('last_active', { withTimezone: true }).defaultNow().notNull(),
+  // 注意：數據庫表中沒有 last_active 列，已從 schema 中移除
 }, (table) => ({
   emailIdx: index('users_email_idx').on(table.email),
-  usernameIdx: index('users_username_idx').on(table.username),
+  // 注意：數據庫表中沒有 username 列，已移除相關索引
   roleIdx: index('users_role_idx').on(table.role),
 }));
 
@@ -133,9 +143,9 @@ export const invitations = pgTable('invitations', {
   id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
   
   // 邀請方和接收方
-  senderId: varchar('sender_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  senderId: integer('sender_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
   receiverEmail: text('receiver_email').notNull(), // 可能是未註冊用戶的 email
-  receiverId: varchar('receiver_id').references(() => users.id, { onDelete: 'cascade' }), // 接收方註冊後關聯
+  receiverId: integer('receiver_id').references(() => users.id, { onDelete: 'cascade' }), // 接收方註冊後關聯
   
   // 邀請類型與狀態
   invitationType: text('invitation_type', { enum: ['COACH_TO_CLIENT', 'CLIENT_TO_COACH'] }).notNull(),
@@ -156,13 +166,26 @@ export const invitations = pgTable('invitations', {
   tokenIdx: index('invitations_token_idx').on(table.token),
 }));
 
+// 邀請模板表
+export const invitationTemplates = pgTable('invitation_templates', {
+  id: text('id').primaryKey().$defaultFn(() => randomUUID()),
+  coachId: integer('coach_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  message: text('message').notNull(),
+  isDefault: boolean('is_default').default(false),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  uniqueCoachName: uniqueIndex('unique_coach_template_name').on(table.coachId, table.name),
+}));
+
 // 教練-客戶關聯表
 export const coachClientRelationships = pgTable('coach_client_relationships', {
   id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
   
-  // 關聯雙方
-  coachId: varchar('coach_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
-  clientId: varchar('client_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  // 關聯雙方（已修復為 INTEGER 以匹配 users.id）
+  coachId: integer('coach_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  clientId: integer('client_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
   
   // 關聯狀態
   status: relationshipStatusEnum('status').default('ACTIVE').notNull(),
@@ -356,6 +379,99 @@ export const friendships = pgTable('friendships', {
 }));
 
 // ==========================================
+// 教練系統 Phase 2
+// ==========================================
+
+// 教練-客戶關聯表（簡化版）
+export const coachClients = pgTable('coach_clients', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  
+  // 關聯雙方
+  coachId: varchar('coach_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  clientId: varchar('client_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  
+  // 狀態
+  status: text('status', { enum: ['active', 'paused', 'completed'] }).default('active').notNull(),
+  
+  // 日期
+  startDate: timestamp('start_date', { withTimezone: true }).defaultNow().notNull(),
+  endDate: timestamp('end_date', { withTimezone: true }),
+  
+  // 備註
+  notes: text('notes'),
+  
+  // 時間戳
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  coachIdx: index('coach_clients_coach_idx').on(table.coachId),
+  clientIdx: index('coach_clients_client_idx').on(table.clientId),
+  statusIdx: index('coach_clients_status_idx').on(table.status),
+  uniqueRelationship: index('coach_clients_unique').on(table.coachId, table.clientId),
+}));
+
+// 訓練計劃表
+export const workoutPlans = pgTable('workout_plans', {
+  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
+  
+  // 關聯
+  coachId: varchar('coach_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  clientId: varchar('client_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  
+  // 基本信息
+  name: text('name').notNull(),
+  description: text('description'),
+  
+  // 訓練內容（JSON 格式）
+  exercises: text('exercises'), // JSON 字符串：訓練動作和詳細信息
+  weekDays: text('week_days'), // JSON 字符串：一週中的訓練日 [1,3,5] 表示週一、三、五
+  
+  // 計劃詳情
+  duration: integer('duration'), // 計劃持續週數
+  notes: text('notes'),
+  
+  // 狀態
+  status: text('status', { enum: ['draft', 'active', 'completed'] }).default('draft').notNull(),
+  
+  // 日期
+  startDate: timestamp('start_date', { withTimezone: true }),
+  endDate: timestamp('end_date', { withTimezone: true }),
+  
+  // 時間戳
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  coachIdx: index('workout_plans_coach_idx').on(table.coachId),
+  clientIdx: index('workout_plans_client_idx').on(table.clientId),
+  statusIdx: index('workout_plans_status_idx').on(table.status),
+}));
+
+// ==========================================
+// 郵件日誌系統
+// ==========================================
+
+// 郵件日誌表
+// 注意：字段名必須與實際數據庫表結構匹配
+export const emailLogs = pgTable('email_logs', {
+  id: varchar('id').primaryKey().notNull(), // UUID 字符串
+  coach_id: integer('coach_id'), // 可選，發送者（教練）ID
+  recipient_email: varchar('recipient_email').notNull(), // 收件人郵箱（數據庫中是 recipient_email，不是 to）
+  subject: varchar('subject').notNull(), // 郵件主題
+  message_id: varchar('message_id'), // SendGrid 的 message ID
+  status: varchar('status').notNull().default('sent'), // 郵件狀態：sent, failed, bounced 等（數據庫中是 status，不是 success）
+  error_message: text('error_message'), // 錯誤信息（數據庫中是 error_message，不是 error）
+  type: varchar('type').default('general'), // 郵件類型：invitation, verification, general 等
+  sent_at: timestamp('sent_at', { withTimezone: true }).defaultNow().notNull(), // 發送時間（數據庫中是 sent_at，不是 timestamp）
+  created_at: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(), // 記錄建立時間
+}, (table) => ({
+  typeIdx: index('email_logs_type_idx').on(table.type),
+  recipientEmailIdx: index('email_logs_recipient_email_idx').on(table.recipient_email),
+  sentAtIdx: index('email_logs_sent_at_idx').on(table.sent_at),
+  statusIdx: index('email_logs_status_idx').on(table.status),
+  coachIdIdx: index('email_logs_coach_id_idx').on(table.coach_id),
+  messageIdIdx: index('email_logs_message_id_idx').on(table.message_id),
+}));
+
+// ==========================================
 // 關聯關係定義（Drizzle Relations）
 // ==========================================
 
@@ -367,6 +483,12 @@ export const usersRelations = relations(users, ({ many }) => ({
   // 教練-客戶關係
   myClients: many(coachClientRelationships, { relationName: 'coach' }),
   myCoaches: many(coachClientRelationships, { relationName: 'client' }),
+  
+  // 教練系統 Phase 2
+  coachClientsAsCoach: many(coachClients, { relationName: 'coach' }),
+  coachClientsAsClient: many(coachClients, { relationName: 'client' }),
+  workoutPlansAsCoach: many(workoutPlans, { relationName: 'coach' }),
+  workoutPlansAsClient: many(workoutPlans, { relationName: 'client' }),
   
   // 個人數據
   meals: many(meals),
@@ -473,6 +595,32 @@ export const friendshipsRelations = relations(friendships, ({ one }) => ({
   }),
 }));
 
+export const coachClientsRelations = relations(coachClients, ({ one }) => ({
+  coach: one(users, {
+    fields: [coachClients.coachId],
+    references: [users.id],
+    relationName: 'coach',
+  }),
+  client: one(users, {
+    fields: [coachClients.clientId],
+    references: [users.id],
+    relationName: 'client',
+  }),
+}));
+
+export const workoutPlansRelations = relations(workoutPlans, ({ one }) => ({
+  coach: one(users, {
+    fields: [workoutPlans.coachId],
+    references: [users.id],
+    relationName: 'coach',
+  }),
+  client: one(users, {
+    fields: [workoutPlans.clientId],
+    references: [users.id],
+    relationName: 'client',
+  }),
+}));
+
 // ==========================================
 // 類型導出（供 TypeScript 使用）
 // ==========================================
@@ -482,6 +630,9 @@ export type NewUser = typeof users.$inferInsert;
 
 export type Invitation = typeof invitations.$inferSelect;
 export type NewInvitation = typeof invitations.$inferInsert;
+
+export type InvitationTemplate = typeof invitationTemplates.$inferSelect;
+export type NewInvitationTemplate = typeof invitationTemplates.$inferInsert;
 
 export type CoachClientRelationship = typeof coachClientRelationships.$inferSelect;
 export type NewCoachClientRelationship = typeof coachClientRelationships.$inferInsert;
@@ -503,3 +654,12 @@ export type NewFriendRequest = typeof friendRequests.$inferInsert;
 
 export type Friendship = typeof friendships.$inferSelect;
 export type NewFriendship = typeof friendships.$inferInsert;
+
+export type CoachClient = typeof coachClients.$inferSelect;
+export type NewCoachClient = typeof coachClients.$inferInsert;
+
+export type WorkoutPlan = typeof workoutPlans.$inferSelect;
+export type NewWorkoutPlan = typeof workoutPlans.$inferInsert;
+
+export type EmailLog = typeof emailLogs.$inferSelect;
+export type NewEmailLog = typeof emailLogs.$inferInsert;
