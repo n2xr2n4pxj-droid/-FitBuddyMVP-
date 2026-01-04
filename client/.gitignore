@@ -1,1 +1,21 @@
+# Environment variables
+.env
 .env.local
+.env.*.local
+.env.production.local
+
+# Vite dependencies and build
+node_modules/
+dist/
+*.local
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# OS
+Thumbs.db

@@ -6,13 +6,26 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Mail, CheckCircle2, RefreshCw } from "lucide-react";
 
 export default function VerifyEmailPrompt() {
-  const [, setLocation] = useLocation();
+  const [location, setLocation] = useLocation();
   const [email, setEmail] = useState<string>("");
   const [isChecking, setIsChecking] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
   const [checkCount, setCheckCount] = useState(0);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const maxChecks = 28800; // 24 小時 = 28800 次（每 3 秒一次）
+
+  // 🔍 調試日誌：組件加載和路由信息
+  useEffect(() => {
+    console.log("🔍 VerifyEmailPrompt 組件已加載");
+    console.log("📧 當前路徑:", location);
+    const queryString = location.split('?')[1];
+    if (queryString) {
+      const params = new URLSearchParams(queryString);
+      console.log("📧 查詢參數:", Object.fromEntries(params.entries()));
+    } else {
+      console.log("📧 查詢參數: 無");
+    }
+  }, [location]);
 
   // ✅ 從 URL 參數或路由狀態獲取郵箱地址
   useEffect(() => {
@@ -158,6 +171,12 @@ export default function VerifyEmailPrompt() {
             <CardDescription>
               我們已向你發送驗證郵件，請檢查郵箱並點擊驗證鏈接
             </CardDescription>
+            {/* ✅ 重要提示：必須驗證郵箱才能使用應用 */}
+            <Alert variant="default" className="mt-4 border-orange-200 bg-orange-50">
+              <AlertDescription className="text-orange-800 font-semibold">
+                ⚠️ 請驗證你的郵箱才能使用應用功能
+              </AlertDescription>
+            </Alert>
           </CardHeader>
 
           <CardContent className="space-y-6">
@@ -208,12 +227,12 @@ export default function VerifyEmailPrompt() {
             <div className="space-y-3">
               <Button
                 onClick={handleResend}
-                variant="outline"
-                className="w-full"
+                variant="default"
+                className="w-full bg-blue-600 hover:bg-blue-700"
                 disabled={isVerified}
               >
                 <Mail className="h-4 w-4 mr-2" />
-                沒收到郵件？重新發送
+                重新發送驗證郵件
               </Button>
 
               <Button

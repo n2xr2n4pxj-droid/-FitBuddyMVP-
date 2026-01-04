@@ -148,33 +148,30 @@ router.post('/auth/register',  async (req: any, res: any) => {
       return res.status(500).json({ message: 'Failed to create user' });
     }
 
+    // ✅ 註冊成功，但不返回 token（用戶需要先驗證郵箱）
     // 使用資料庫中實際存儲的 role 值
     const userRole = newUser.role || 'client';
 
-    // 生成 tokens
-    const accessToken = generateAccessToken({
-      sub: newUser.id,
-      email: newUser.email || '',
-      role: userRole,
+    console.log('[POST /auth/register] Success - user created, email verification required:', { 
+      id: newUser.id, 
+      email: newUser.email,
+      role: userRole 
     });
 
-    const refreshToken = generateRefreshToken(newUser.id);
-
-    console.log('[POST /auth/register] Success:', { id: newUser.id, role: userRole });
-
+    // ✅ 不返回 token，要求用戶先驗證郵箱
     res.status(201).json({
       success: true,
-      message: 'Registration successful. Please check your email to verify your account.',
-      token: accessToken,
-      refreshToken,
+      message: 'Registration successful. Please verify your email before logging in.',
+      // ✅ 不返回 token 和 refreshToken
       user: {
         id: newUser.id,
         email: newUser.email,
         firstName: newUser.firstName || null,
         lastName: newUser.lastName || null,
         avatar: newUser.avatar || null,
-        role: userRole, // 直接返回資料庫原始值
+        role: userRole,
         createdAt: newUser.createdAt || null,
+        emailVerified: false, // ✅ 明確標記郵箱未驗證
       },
     });
   } catch (error) {

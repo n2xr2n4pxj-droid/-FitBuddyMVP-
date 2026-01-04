@@ -12,6 +12,7 @@ export interface User {
   avatar: string | null;
   role: 'client' | 'coach' | 'admin' | 'both';
   createdAt: string | null;
+  emailVerified?: boolean; // ✅ 郵箱驗證狀態
 }
 
 export interface AuthState {
@@ -24,6 +25,7 @@ export interface AuthState {
   error: string | null;
   needsVerification: boolean; // ✅ 郵箱驗證標記
   lastRefreshTime: number | null;
+  pendingEmail: string | null; // ✅ 待驗證郵箱（註冊後未驗證）
 
   // ===== Setters =====
   setUser: (user: User | null) => void;
@@ -54,6 +56,7 @@ export const useAuthStore = create<AuthState>()(
       error: null,
       needsVerification: false, // ✅ 郵箱驗證標記
       lastRefreshTime: null,
+      pendingEmail: null, // ✅ 待驗證郵箱
 
       // ===== Setters =====
       setUser: (user) => {
@@ -193,26 +196,30 @@ export const useAuthStore = create<AuthState>()(
 
         try {
           const response = await api.auth.register(email, password, firstName, lastName);
-          const { user, token, refreshToken } = response.data;
+          
+          // ✅ 註冊成功後，不自動登錄
+          // 清除任何現有的 token 和認證狀態
+          tokenManager.clear();
 
-          tokenManager.setAccessToken(token);
-          tokenManager.setRefreshToken(refreshToken);
-
+          // ✅ 保存待驗證郵箱，但不設置認證狀態
           set({
-            user,
-            token,
-            refreshToken,
-            isAuthenticated: true,
+            user: null, // 不設置用戶，因為未驗證
+            token: null, // 不保存 token
+            refreshToken: null, // 不保存 refresh token
+            isAuthenticated: false, // ✅ 保持未認證狀態
             isLoading: false,
-            lastRefreshTime: Date.now(),
+            lastRefreshTime: null,
+            pendingEmail: email, // ✅ 保存待驗證郵箱
+            needsVerification: true, // ✅ 標記需要驗證
           });
 
-          logger.info('AUTH', 'Registration successful', { userId: user.id });
+          logger.info('AUTH', 'Registration successful - awaiting email verification', { email });
         } catch (err: any) {
           const errorMsg = err.response?.data?.error || err.response?.data?.message || err.message || 'Registration failed';
           set({
             error: errorMsg,
             isLoading: false,
+            pendingEmail: null,
           });
           logger.error('AUTH', 'Registration failed', { error: errorMsg });
           throw err;
@@ -288,6 +295,7 @@ export const useAuthStore = create<AuthState>()(
           error: null,
           needsVerification: false, // ✅ 清除郵箱驗證標記
           lastRefreshTime: null,
+          pendingEmail: null, // ✅ 清除待驗證郵箱
         });
         logger.info('AUTH', 'Logout successful');
       },

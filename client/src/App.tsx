@@ -44,6 +44,15 @@ function Router() {
     checkAuth();
   }, [checkAuth]);
 
+  // 🔍 調試：記錄路由匹配信息
+  useEffect(() => {
+    console.log("🔍 [App.tsx Router] 路由狀態更新");
+    console.log("📧 當前路徑:", window.location.pathname);
+    console.log("📧 認證狀態: isAuthenticated =", isAuthenticated);
+    console.log("📧 加載狀態: isLoading =", isLoading);
+    console.log("📧 用戶角色: role =", user?.role);
+  }, [isAuthenticated, isLoading, user?.role]);
+
   // ✨ 企業級：監聽網絡狀態和隊列變化
   useEffect(() => {
     const updateQueueSize = () => {
@@ -94,6 +103,9 @@ function Router() {
 
   // 未認證用戶路由
   if (!isAuthenticated) {
+    console.log("🔍 [App.tsx] 渲染未認證用戶路由區域");
+    console.log("📧 路由列表包含: /verify-email-prompt");
+
     return (
       <>
         {/* ✨ 企業級：離線指示器 */}
@@ -129,9 +141,24 @@ function Router() {
     );
   }
 
+  // ✅ 已認證但郵箱未驗證 → 強制導向驗證頁面
+  if (isAuthenticated && user && user.emailVerified === false) {
+    logger.info('APP', 'User authenticated but email not verified. Redirecting to verification.');
+    console.log("🔍 [App.tsx] 用戶已認證但郵箱未驗證，重定向到驗證頁面");
+    
+    // 重定向到驗證提示頁面
+    if (typeof window !== 'undefined' && !window.location.pathname.includes('/verify-email')) {
+      window.location.href = `/verify-email-prompt?email=${encodeURIComponent(user.email)}`;
+      return null;
+    }
+  }
+
   // ✅ 已認證但未選擇角色 → 強制導向角色選擇頁面
   if (isAuthenticated && !user?.role) {
     logger.info('APP', 'User authenticated but no role selected. Redirecting to role selection.');
+    console.log("🔍 [App.tsx] 渲染已認證但未選擇角色路由區域");
+    console.log("📧 路由列表包含: /verify-email-prompt (已添加)");
+
     return (
       <>
         {/* ✨ 企業級：離線指示器 */}
@@ -149,6 +176,12 @@ function Router() {
         <div className={!isOnline ? 'pt-20' : ''}>
           <Layout>
             <Switch>
+          {/* ✅ 郵箱驗證相關路由（優先匹配，允許未驗證用戶完成驗證流程） */}
+          <Route path="/auth/verify-email/:token" component={VerifyEmail} />
+          <Route path="/verify-email/:token" component={VerifyEmail} />
+          <Route path="/verify-email-prompt" component={VerifyEmailPrompt} />
+          <Route path="/resend-verification" component={ResendVerification} />
+          
           {/* 允許在選角色時訪問邀請接受頁面 */}
           <Route path="/auth/accept-invitation/:code" component={AcceptInvitation} />
           {/* 只能訪問角色選擇頁面 */}
@@ -167,6 +200,8 @@ function Router() {
 
   // ✅ 已認證且已選擇角色 → 正常路由
   logger.info('APP', 'Authenticated user with role', { role: user?.role });
+  console.log("🔍 [App.tsx] 渲染已認證用戶路由區域");
+  console.log("📧 路由列表包含: /verify-email-prompt (已添加)");
 
   return (
     <>
@@ -185,6 +220,13 @@ function Router() {
       <div className={!isOnline ? 'pt-20' : ''}>
         <Layout>
           <Switch>
+        {/* ✅ 郵箱驗證相關路由（放在最前面，優先匹配）
+            即使已認證，用戶仍需要完成郵箱驗證流程 */}
+        <Route path="/auth/verify-email/:token" component={VerifyEmail} />
+        <Route path="/verify-email/:token" component={VerifyEmail} />
+        <Route path="/verify-email-prompt" component={VerifyEmailPrompt} />
+        <Route path="/resend-verification" component={ResendVerification} />
+        
         {/* 邀請接受頁面 */}
         <Route path="/auth/accept-invitation/:code" component={AcceptInvitation} />
         
