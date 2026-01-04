@@ -939,4 +939,228 @@ router.delete('/v1/admin/users/:id', async (req: any, res: any) => {
   }
 });
 
+// ==========================================
+// POST /auth/google/callback - Google OAuth 回調
+// ==========================================
+router.post('/auth/google/callback', async (req: any, res: any) => {
+  try {
+    const { code, clientId } = req.body;
+
+    console.log('[POST /auth/google/callback] ===== START =====');
+    console.log('[POST /auth/google/callback] Code received, length:', code?.length);
+    console.log('[POST /auth/google/callback] Client ID:', clientId);
+
+    // ==========================================
+    // 步驟 1：驗證參數
+    // ==========================================
+    if (!code) {
+      console.log('[POST /auth/google/callback] ❌ Authorization code is missing');
+      return res.status(400).json({
+        success: false,
+        error: 'Authorization code is required',
+      });
+    }
+
+    // ==========================================
+    // 步驟 2：使用 authorization code 交換 token
+    // ==========================================
+    console.log('[POST /auth/google/callback] Exchanging code for tokens...');
+
+    const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        code,
+        client_id: process.env.VITE_GOOGLE_CLIENT_ID || clientId,
+        client_secret: process.env.GOOGLE_CLIENT_SECRET,
+        redirect_uri: `${process.env.CLIENT_URL || 'http://localhost:5173'}/auth/google-callback`,
+        grant_type: 'authorization_code',
+      }),
+    });
+
+    if (!tokenResponse.ok) {
+      const errorData = await tokenResponse.json();
+      console.error('[POST /auth/google/callback] ❌ Token exchange failed:', errorData);
+      return res.status(400).json({
+        success: false,
+        error: 'Failed to exchange authorization code',
+        details: errorData,
+      });
+    }
+
+    const tokens = await tokenResponse.json();
+    console.log('[POST /auth/google/callback] ✅ Tokens received:', {
+      hasAccessToken: !!tokens.access_token,
+      hasIdToken: !!tokens.id_token,
+    });
+
+    // ==========================================
+    // 步驟 3：使用 access token 獲取用戶信息
+    // ==========================================
+    console.log('[POST /auth/google/callback] Fetching user info...');
+
+    const userInfoResponse = await fetch(
+      'https://www.googleapis.com/oauth2/v2/userinfo',
+      {
+        headers: {
+          Authorization: `Bearer ${tokens.access_token}`,
+        },
+      }
+    );
+
+    if (!userInfoResponse.ok) {
+      console.error('[POST /auth/google/callback] ❌ Failed to fetch user info');
+      return res.status(400).json({
+        success: false,
+        error: 'Failed to fetch user information',
+      });
+    }
+
+    const googleUser = await userInfoResponse.json();
+    console.log('[POST /auth/google/callback] ✅ Google user info received:', {
+      id: googleUser.id,
+      email: googleUser.email,
+      name: googleUser.name,
+    });
+
+    // ==========================================
+    // 步驟 4：檢查或創建本地用戶
+    // ==========================================
+    const normalizedEmail = googleUser.email.toLowerCase();
+    let user = await getUserByEmail(normalizedEmail);
+
+    if (!user) {
+      console.log('[POST /auth/google/callback] 👤 New user, creating account...');
+
+      // 從 Google name 提取 firstName 和 lastName
+      const [firstName, ...lastNameParts] = (googleUser.name || 'Google User').split(
+        ' '
+      );
+      const lastName = lastNameParts.join(' ');
+
+      await createUser({
+        email: normalizedEmail,
+        firstName: firstName || 'Google',
+        lastName: lastName || 'User',
+        passwordHash: crypto.randomBytes(32).toString('hex'), // 隨機密碼（Google OAuth 不需要）
+        role: 'client',
+        emailVerified: true, // Google 已驗證 email
+        emailVerificationToken: null,
+        emailVerificationExpires: null,
+      });
+
+      // 重新獲取用戶以確保獲取完整信息
+      user = await getUserByEmail(normalizedEmail);
+
+      // 如果 Google 提供了頭像，更新用戶頭像
+      if (googleUser.picture && user) {
+        await db
+          .update(users)
+          .set({
+            avatar: googleUser.picture,
+            updatedAt: new Date(),
+          })
+          .where(eq(users.id, user.id));
+        user = { ...user, avatar: googleUser.picture };
+      }
+
+      console.log('[POST /auth/google/callback] ✅ New user created:', {
+        id: user?.id,
+        email: user?.email,
+      });
+    } else {
+      console.log('[POST /auth/google/callback] ✅ Existing user found:', {
+        id: user.id,
+        email: user.email,
+      });
+
+      // 如果用戶還沒驗證郵箱，通過 Google OAuth 自動驗證
+      if (!user.emailVerified) {
+        console.log('[POST /auth/google/callback] Marking email as verified...');
+        await db
+          .update(users)
+          .set({
+            emailVerified: true,
+            emailVerificationToken: null,
+            emailVerificationExpires: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(users.id, user.id));
+
+        user = { ...user, emailVerified: true };
+      }
+
+      // 如果 Google 提供了頭像且用戶沒有頭像，更新頭像
+      if (googleUser.picture && !user.avatar) {
+        await db
+          .update(users)
+          .set({
+            avatar: googleUser.picture,
+            updatedAt: new Date(),
+          })
+          .where(eq(users.id, user.id));
+        user = { ...user, avatar: googleUser.picture };
+      }
+    }
+
+    // ==========================================
+    // 步驟 5：驗證用戶已創建
+    // ==========================================
+    if (!user) {
+      console.error('[POST /auth/google/callback] ❌ User creation failed');
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to create or retrieve user',
+      });
+    }
+
+    // ==========================================
+    // 步驟 6：生成 JWT tokens
+    // ==========================================
+    console.log('[POST /auth/google/callback] Generating JWT tokens...');
+
+    const userRole = user.role || 'client';
+
+    const accessToken = generateAccessToken({
+      sub: String(user.id), // ✅ 轉換為字符串
+      email: user.email || '',
+      role: userRole,
+    });
+
+    const refreshToken = generateRefreshToken(String(user.id)); // ✅ 轉換為字符串
+
+    console.log('[POST /auth/google/callback] ✅ Tokens generated');
+    console.log('[POST /auth/google/callback] ===== END =====');
+
+    // ==========================================
+    // 步驟 6：返回響應
+    // ==========================================
+    res.json({
+      success: true,
+      message: 'Google authentication successful',
+      token: accessToken,
+      refreshToken,
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName || null,
+        lastName: user.lastName || null,
+        avatar: user.avatar || null,
+        role: userRole,
+        emailVerified: user.emailVerified,
+        createdAt: user.createdAt || null,
+      },
+    });
+  } catch (error) {
+    console.error('[POST /auth/google/callback] ❌ Error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Google authentication failed',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
 export default router;
