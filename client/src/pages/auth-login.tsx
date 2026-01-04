@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
+import GoogleLoginButton from "@/components/GoogleLoginButton";
 
 export default function AuthLoginPage() {
   const [_, navigate] = useLocation();
@@ -131,6 +132,9 @@ export default function AuthLoginPage() {
                 <span className="px-2 bg-background text-muted-foreground">或</span>
               </div>
             </div>
+
+            {/* Google 登錄按鈕 */}
+            <GoogleLoginButton />
 
             {/* 註冊鏈接 */}
             <p className="text-center text-sm text-muted-foreground">
