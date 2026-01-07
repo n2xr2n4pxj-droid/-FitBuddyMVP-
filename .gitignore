@@ -6,6 +6,12 @@ vite.config.ts.*
 *.tar.gz.env
 .env.local
 
+# 環境變量文件（包含敏感信息，絕對不能提交）
+.env
+.env.*
+!.env.example
+*.env
+
 # Replit 配置文件（包含 Semgrep 規則，可能觸發 GitHub 推送保護）
 .config/replit/
 
