@@ -32,10 +32,10 @@ source .env.local  # ❌ 文件不存在於根目錄
 
 從 `server/.env.local` 讀取到的值：
 ```
-DATABASE_URL=postgres://gordon@localhost:5432/fitbuddy
+DATABASE_URL=postgres://username@localhost:5432/database_name
 ```
 
-這是正確的 PostgreSQL 連接字符串格式。
+這是正確的 PostgreSQL 連接字符串格式（示例）。
 
 ## ✅ 解決方案
 
