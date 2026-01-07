@@ -8,3 +8,9 @@ vite.config.ts.*
 
 # Replit 配置文件（包含 Semgrep 規則，可能觸發 GitHub 推送保護）
 .config/replit/
+
+# 數據庫備份文件（可能包含敏感數據）
+backups/
+fitbuddy_backup_*.sql
+*.backup.sql
+# 注意：drizzle/ 目錄下的遷移文件應該保留在 Git 中

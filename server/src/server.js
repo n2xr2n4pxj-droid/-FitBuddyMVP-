@@ -16,7 +16,7 @@ pool.on('error', (err) => console.error('Unexpected error on idle client', err))
 app.get('/api/admin/email/config', (req, res) => {
   res.json({
     sendgridConfigured: true,
-    fromEmail: 'gordonlai87@gmail.com'
+    fromEmail: process.env.SENDGRID_FROM_EMAIL || 'support@fitbuddy.hk'
   });
 });
 
