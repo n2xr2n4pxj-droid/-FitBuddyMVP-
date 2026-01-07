@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { apiClient } from '@/lib/api-client';
 import {
   Select,
   SelectContent,
@@ -61,15 +62,8 @@ export default function WorkoutPlanEditor({
   const fetchClients = async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/coaches/clients', {
-        credentials: 'include',
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch clients');
-      }
-
-      const data = await response.json();
+      const response = await apiClient.get('/api/coaches/clients');
+      const data = response.data;
       setClients(data.map((c: any) => ({
         id: c.clientId,
         username: c.username,
@@ -138,26 +132,17 @@ export default function WorkoutPlanEditor({
 
     setSubmitting(true);
     try {
-      const response = await fetch('/api/workout-plans', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          clientId,
-          name,
-          description: description || null,
-          exercises,
-          weekDays,
-          duration,
-          notes: notes || null,
-        }),
+      const response = await apiClient.post('/api/workout-plans', {
+        clientId,
+        name,
+        description: description || null,
+        exercises,
+        weekDays,
+        duration,
+        notes: notes || null,
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data?.error || 'Failed to create workout plan');
-      }
+      const data = response.data;
 
       toast({
         title: '成功',

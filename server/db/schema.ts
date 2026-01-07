@@ -20,6 +20,7 @@ import {
   timestamp, 
   integer, 
   serial,
+  bigint,
   real, 
   boolean, 
   pgEnum,
@@ -94,7 +95,7 @@ export const users = pgTable('users', {
   // Email 驗證
   emailVerified: boolean('email_verified').default(false).notNull(),
   emailVerificationToken: text('email_verification_token'),
-  emailVerificationExpires: integer('email_verification_expires'), // BIGINT 存儲時間戳（毫秒）
+  emailVerificationExpires: bigint('email_verification_expires', { mode: 'number' }), // BIGINT 存儲時間戳（毫秒）
   
   // 個人資料
   firstName: text('first_name'),
@@ -212,7 +213,7 @@ export const coachClientRelationships = pgTable('coach_client_relationships', {
 // 飲食記錄表
 export const meals = pgTable('meals', {
   id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  userId: integer('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
   
   // 飲食信息
   name: text('name').notNull(),           // 對應 shared/schema 中的 foodName
@@ -247,7 +248,7 @@ export const meals = pgTable('meals', {
 // 訓練記錄表
 export const workouts = pgTable('workouts', {
   id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  userId: integer('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
   
   // 訓練信息
   name: text('name').notNull(),
@@ -285,7 +286,7 @@ export const workouts = pgTable('workouts', {
 // 進度記錄表
 export const progressEntries = pgTable('progress_entries', {
   id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  userId: integer('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
   
   // 身體數據
   weight: real('weight').notNull(), // kg
@@ -320,7 +321,7 @@ export const progressEntries = pgTable('progress_entries', {
 // 活動記錄表（用於教練監測）
 export const activityLogs = pgTable('activity_logs', {
   id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  userId: integer('user_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
   
   // 活動類型與數據
   activityType: text('activity_type', { 
@@ -351,8 +352,8 @@ export const activityLogs = pgTable('activity_logs', {
 // 好友請求表
 export const friendRequests = pgTable('friend_requests', {
   id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
-  senderId: varchar('sender_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
-  receiverId: varchar('receiver_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  senderId: integer('sender_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  receiverId: integer('receiver_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
   
   status: friendRequestStatusEnum('status').default('PENDING').notNull(),
   message: text('message'),
@@ -368,8 +369,8 @@ export const friendRequests = pgTable('friend_requests', {
 // 好友關聯表
 export const friendships = pgTable('friendships', {
   id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
-  user1Id: varchar('user1_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
-  user2Id: varchar('user2_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  user1Id: integer('user1_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  user2Id: integer('user2_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
   
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
@@ -387,8 +388,8 @@ export const coachClients = pgTable('coach_clients', {
   id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
   
   // 關聯雙方
-  coachId: varchar('coach_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
-  clientId: varchar('client_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  coachId: integer('coach_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  clientId: integer('client_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
   
   // 狀態
   status: text('status', { enum: ['active', 'paused', 'completed'] }).default('active').notNull(),
@@ -414,8 +415,8 @@ export const workoutPlans = pgTable('workout_plans', {
   id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
   
   // 關聯
-  coachId: varchar('coach_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
-  clientId: varchar('client_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  coachId: integer('coach_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  clientId: integer('client_id').references(() => users.id, { onDelete: 'cascade' }).notNull(),
   
   // 基本信息
   name: text('name').notNull(),

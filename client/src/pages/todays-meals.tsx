@@ -8,7 +8,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { WeeklyChart } from "@/components/weekly-chart";
 import { WorkoutList } from "@/components/workout-list";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { getQueryFn } from "@/lib/queryClient";
+import { createQueryFn, apiRequest } from "@/lib/queryClient";
+import { apiClient } from "@/lib/api-client";
 
 export default function TodaysMeals() {
   const { user, isAuthenticated } = useAuth();
@@ -29,29 +30,15 @@ export default function TodaysMeals() {
     mutationFn: async (formData: typeof mealForm) => {
       console.log('🔴 [Frontend] About to submit meal:', formData);
       
-      const response = await fetch('/api/meals', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          name: formData.name,
-          calories: parseFloat(formData.calories),
-          protein: parseFloat(formData.protein) || 0,
-          carbs: parseFloat(formData.carbs) || 0,
-          fat: parseFloat(formData.fat) || 0,
-          mealType: formData.mealType,
-          consumedAt: formData.date ? new Date(formData.date).toISOString() : new Date().toISOString()
-        })
+      const data = await apiRequest("POST", "/api/meals", {
+        name: formData.name,
+        calories: parseFloat(formData.calories),
+        protein: parseFloat(formData.protein) || 0,
+        carbs: parseFloat(formData.carbs) || 0,
+        fat: parseFloat(formData.fat) || 0,
+        mealType: formData.mealType,
+        consumedAt: formData.date ? new Date(formData.date).toISOString() : new Date().toISOString()
       });
-
-      console.log('🔴 [Frontend] Response status:', response.status);
-      
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Failed to create meal');
-      }
-      
-      const data = await response.json();
       console.log('🔴 [Frontend] Response data:', data);
       return data;
     },
@@ -92,16 +79,15 @@ export default function TodaysMeals() {
     queryFn: async ({ queryKey }) => {
       const url = `/api/meals/${today}`;
       console.log('🔵 [Frontend] Fetching meals from:', url);
-      const res = await fetch(url, {
-        credentials: "include",
-      });
-      if (res.status === 401) {
-        return [];
+      try {
+        const response = await apiClient.get(url);
+        return response.data;
+      } catch (error: any) {
+        if (error.response?.status === 401) {
+          return [];
+        }
+        throw error;
       }
-      if (!res.ok) {
-        throw new Error(`Failed to fetch meals: ${res.status}`);
-      }
-      const data = await res.json();
       console.log('🔵 [Frontend] Meals fetched:', data);
       return data;
     },
@@ -110,29 +96,19 @@ export default function TodaysMeals() {
 
   const { data: workouts = [], isLoading: workoutsLoading } = useQuery<Workout[]>({
     queryKey: ["/api/workouts", today],
-    queryFn: getQueryFn({ on401: "returnNull" }),
+    queryFn: createQueryFn<Workout[]>({ on401: "returnNull" }),
     enabled: isAuthenticated,
   });
 
   const { data: todaySummary } = useQuery<DailySummary>({
     queryKey: ["/api/summary/daily", today],
-    queryFn: getQueryFn({ on401: "returnNull" }),
+    queryFn: createQueryFn<Workout[]>({ on401: "returnNull" }),
     enabled: isAuthenticated,
   });
 
   const deleteMutation = useMutation({
     mutationFn: async (mealId: string) => {
-      const res = await fetch(`/api/meals/${mealId}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
-      
-      if (!res.ok) {
-        const error = await res.json();
-        throw new Error(error.message || "Failed to delete meal");
-      }
-      
-      return res.json();
+      return await apiRequest("DELETE", `/api/meals/${mealId}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/meals"] });

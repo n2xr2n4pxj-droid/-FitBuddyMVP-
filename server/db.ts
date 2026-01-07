@@ -3,7 +3,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import * as schema from "@shared/schema";
+import * as schema from "./db/schema";
 
 // 獲取當前文件的絕對路徑
 const __filename = fileURLToPath(import.meta.url);

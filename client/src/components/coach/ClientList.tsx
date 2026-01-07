@@ -4,6 +4,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { apiClient } from '@/lib/api-client';
 import {
   Dialog,
   DialogContent,
@@ -59,14 +60,11 @@ export default function ClientList({ clients, onClientSelect, onRefresh }: Clien
 
     setAdding(true);
     try {
-      const response = await fetch('/api/coaches/add-client', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ clientEmail: clientEmail.trim() }),
+      const response = await apiClient.post('/api/coaches/add-client', {
+        clientEmail: clientEmail.trim(),
       });
 
-      const data = await response.json();
+      const data = response.data;
 
       if (!response.ok) {
         throw new Error(data?.error || 'Failed to add client');
@@ -97,18 +95,8 @@ export default function ClientList({ clients, onClientSelect, onRefresh }: Clien
     }
 
     try {
-      const response = await fetch('/api/coaches/remove-client', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ clientId }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data?.error || 'Failed to remove client');
-      }
+      const response = await apiClient.post('/api/coaches/remove-client', { clientId });
+      const data = response.data;
 
       toast({
         title: '成功',

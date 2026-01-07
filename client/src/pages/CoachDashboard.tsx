@@ -11,7 +11,7 @@ import { InvitationList } from '@/components/InvitationList';
 import { InvitationCard } from '@/components/InvitationCard';
 import { InvitationStats } from '@/components/InvitationStats';
 import { InvitationTemplateManager } from '@/components/InvitationTemplateManager';
-import { tokenManager } from '@/lib/api-client';
+import { apiClient } from '@/lib/api-client';
 
 interface Client {
   id: string;
@@ -53,39 +53,12 @@ export default function CoachDashboard() {
     queryKey: ['coach-clients'],
     queryFn: async () => {
       console.log('🟡 [CoachDashboard] 開始請求客戶列表');
-      
-      // ✅ 獲取認證令牌
-      const token = tokenManager.getAccessToken();
-      if (!token) {
-        console.error('❌ [CoachDashboard] 沒有認證令牌');
-        throw new Error('未授權：請重新登入');
-      }
 
-      const response = await fetch('/api/coaches/clients', {
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`, // ✅ 添加 Authorization header
-        },
-      });
+      const response = await apiClient.get('/api/coaches/clients');
 
       console.log('🟡 [CoachDashboard] 響應狀態:', response.status);
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('❌ [CoachDashboard] 請求失敗:', {
-          status: response.status,
-          statusText: response.statusText,
-          error: errorText,
-        });
-        
-        if (response.status === 401) {
-          throw new Error('未授權：請重新登入');
-        }
-        throw new Error(`獲取客戶列表失敗: ${response.status} ${response.statusText}`);
-      }
-
-      const data = await response.json();
+      const data = response.data;
       console.log('✅ [CoachDashboard] 客戶列表加載成功:', data);
       return Array.isArray(data) ? data : [];
     },
@@ -93,35 +66,7 @@ export default function CoachDashboard() {
 
   const handleRemoveClient = async (clientId: string) => {
     try {
-      // ✅ 獲取認證令牌
-      const token = tokenManager.getAccessToken();
-      if (!token) {
-        throw new Error('未授權：請重新登入');
-      }
-
-      const response = await fetch('/api/coaches/remove-client', {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`, // ✅ 添加 Authorization header
-        },
-        body: JSON.stringify({ clientId }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('❌ [CoachDashboard] 移除客戶失敗:', {
-          status: response.status,
-          statusText: response.statusText,
-          error: errorText,
-        });
-        
-        if (response.status === 401) {
-          throw new Error('未授權：請重新登入');
-        }
-        throw new Error(`移除客戶失敗: ${response.status} ${response.statusText}`);
-      }
+      await apiClient.post('/api/coaches/remove-client', { clientId });
 
       toast({
         title: '成功',

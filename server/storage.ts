@@ -3,15 +3,17 @@ import {
   meals,
   workouts,
   type User,
+  type Meal,
+  type Workout,
+} from "./db/schema";
+import {
   type UpsertUser,
   type UpdateUserTDEE,
-  type Meal,
   type InsertMeal,
-  type Workout,
   type InsertWorkout,
   type DailySummary,
   type WeeklySummary,
-} from "@shared/schema";
+} from "../../shared/schema";
 import { db, pool } from "./db";
 import { eq, and, gte, lte, desc, sql } from "drizzle-orm";
 import { format, subDays, startOfDay, endOfDay } from "date-fns";
@@ -43,10 +45,10 @@ export class DatabaseStorage implements IStorage {
   // User operations
   async getUser(id: string): Promise<User | undefined> {
     // 使用原始 SQL 查詢，避免 schema 不匹配問題
+    // ✅ 修復：只查詢實際存在的欄位（移除 gender, age, height, weight 等不存在的欄位）
     const result = await pool.query(
-      `SELECT id, email, password_hash, first_name, last_name, created_at, updated_at,
-              gender, age, height, weight, body_fat, activity_level,
-              bmr, tdee, goal, goal_calories, goal_protein, goal_carbs, goal_fat
+      `SELECT id, email, password_hash, first_name, last_name, role, created_at, updated_at,
+              email_verified, email_verification_token, email_verification_expires
        FROM users 
        WHERE id = $1 
        LIMIT 1`,
@@ -64,23 +66,26 @@ export class DatabaseStorage implements IStorage {
       passwordHash: row.password_hash,
       firstName: row.first_name,
       lastName: row.last_name,
+      role: row.role || 'client',
       profileImageUrl: null, // 數據庫中沒有此欄位，設為 null
       createdAt: row.created_at,
       updatedAt: row.updated_at,
-      gender: row.gender,
-      age: row.age,
-      heightCm: row.height ? String(row.height) : null,
-      currentWeightKg: row.weight ? String(row.weight) : null,
-      bodyFatPercentage: row.body_fat ? String(row.body_fat) : null,
-      activityLevel: row.activity_level,
-      bmr: row.bmr ? String(row.bmr) : null,
-      tdee: row.tdee ? String(row.tdee) : null,
-      goalType: row.goal,
-      goalCalories: row.goal_calories,
-      proteinG: row.goal_protein,
-      carbsG: row.goal_carbs,
-      fatG: row.goal_fat,
-      lastTdeeUpdate: null, // 數據庫中沒有此欄位，設為 null
+      emailVerified: row.email_verified || false,
+      // ✅ 修復：這些欄位在資料庫中不存在，設為 null
+      gender: null,
+      age: null,
+      heightCm: null,
+      currentWeightKg: null,
+      bodyFatPercentage: null,
+      activityLevel: null,
+      bmr: null,
+      tdee: null,
+      goalType: null,
+      goalCalories: null,
+      proteinG: null,
+      carbsG: null,
+      fatG: null,
+      lastTdeeUpdate: null,
     } as User;
   }
 

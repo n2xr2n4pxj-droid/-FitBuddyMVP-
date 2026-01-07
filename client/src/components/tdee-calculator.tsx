@@ -81,23 +81,13 @@ export default function TDEECalculator() {
 
     setLoading(true);
     try {
-      const response = await fetch("/api/tdee/calculate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          weight: parseFloat(weight),
-          height: parseFloat(height),
-          age: parseInt(age),
-          gender,
-          activityLevel,
-        }),
+      const data = await apiRequest("POST", "/api/tdee/calculate", {
+        weight: parseFloat(weight),
+        height: parseFloat(height),
+        age: parseInt(age),
+        gender,
+        activityLevel,
       });
-
-      if (!response.ok) {
-        throw new Error("Failed to calculate TDEE");
-      }
-
-      const data = await response.json();
       
       // Calculate macros directly
       const macroData = calculateMacros(data.tdee, goal, rate, parseFloat(weight));

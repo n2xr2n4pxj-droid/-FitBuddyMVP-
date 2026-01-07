@@ -1,5 +1,5 @@
 import { db } from '../db';
-import { users } from '@shared/schema';
+import { users } from './schema';
 import { eq, inArray, sql } from 'drizzle-orm';
 
 // 將輸入角色標準化為資料庫儲存格式（小寫）

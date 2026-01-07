@@ -13,7 +13,8 @@ import type { DailySummary, Meal, Workout } from "@shared/schema";
 import { MealForm } from "@/components/meal-form";
 import { WeeklyChart } from "@/components/weekly-chart";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { queryClient } from "@/lib/queryClient";
+import { queryClient, createQueryFn } from "@/lib/queryClient";
+import { apiClient } from "@/lib/api-client";
 import { useLocation } from "wouter";
 import { useTodayProgress, useTDEEProfile } from "@/hooks/use-tdee";
 
@@ -89,12 +90,8 @@ export default function Dashboard() {
 
   const loadPersonalBests = async () => {
     try {
-      const response = await fetch('/api/workouts/stats/personal-best', {
-        credentials: 'include',
-      });
-      if (!response.ok) throw new Error('Failed to fetch personal bests');
-      const data = await response.json();
-      setPersonalBests(data);
+      const response = await apiClient.get('/api/workouts/stats/personal-best');
+      setPersonalBests(response.data);
     } catch (error) {
       console.error('Error loading personal bests:', error);
     }
@@ -203,20 +200,13 @@ export default function Dashboard() {
         console.log('[Dashboard] Number of sets being saved:', exercisesData.length);
         console.log('[Dashboard] Max weight:', maxWeight, 'Total sets:', totalSets);
 
-        const response = await fetch(url, {
-          method,
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify(requestBody),
+        const response = await apiClient.request({
+          method: method as any,
+          url,
+          data: requestBody,
         });
 
-        if (!response.ok) {
-          const error = await response.json();
-          console.error('[Dashboard] STRENGTH workout submission failed:', error);
-          throw new Error(error.error || 'Failed to save strength training');
-        }
-
-        const result = await response.json();
+        const result = response.data;
         console.log('Workout saved:', result);
       }
       // 有氧訓練邏輯
@@ -248,20 +238,13 @@ export default function Dashboard() {
 
         console.log('[Dashboard] Submitting CARDIO workout:', requestBody);
 
-        const response = await fetch(url, {
-          method,
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify(requestBody),
+        const response = await apiClient.request({
+          method: method as any,
+          url,
+          data: requestBody,
         });
 
-        if (!response.ok) {
-          const error = await response.json();
-          console.error('[Dashboard] CARDIO workout submission failed:', error);
-          throw new Error(error.error || 'Failed to save cardio');
-        }
-
-        const result = await response.json();
+        const result = response.data;
         console.log('✅ Cardio saved:', result);
       }
 
@@ -291,10 +274,7 @@ export default function Dashboard() {
     if (!confirm('確定要刪除這個訓練記錄嗎？')) return;
 
     try {
-      const response = await fetch(`/api/workouts/${id}`, {
-        method: 'DELETE',
-        credentials: 'include',
-      });
+      await apiClient.delete(`/api/workouts/${id}`);
 
       if (!response.ok) throw new Error('Failed to delete workout');
 
@@ -399,11 +379,13 @@ export default function Dashboard() {
 
   const { data: todaySummary, isLoading: summaryLoading } = useQuery<DailySummary>({
     queryKey: ["/api/summary/daily", today],
+    queryFn: createQueryFn<DailySummary>(),
     enabled: isAuthenticated,
   });
 
   const { data: meals = [], isLoading: mealsLoading } = useQuery<Meal[]>({
     queryKey: ["/api/meals", today],
+    queryFn: createQueryFn<Meal[]>(),
     enabled: isAuthenticated,
   });
 
@@ -415,9 +397,7 @@ export default function Dashboard() {
         console.log('📋 Fetching workouts…');
         
         // 先獲取所有訓練
-        const response = await fetch('/api/workouts', {
-          credentials: 'include'
-        });
+        const response = await apiClient.get('/api/workouts');
         
         if (!response.ok) {
           throw new Error('Failed to fetch workouts');

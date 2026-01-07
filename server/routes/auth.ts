@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { db, pool } from '../db';
-import { users } from '@shared/schema';
+import { users } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import { hashPassword, verifyPassword, isAuthenticated, verifyJWT } from '../replitAuth';
 import jwt from 'jsonwebtoken';
@@ -22,6 +22,15 @@ const JWT_SECRET = process.env.JWT_SECRET || 'dev-jwt-secret-key';
 const REFRESH_TOKEN_SECRET = process.env.REFRESH_TOKEN_SECRET || 'dev-refresh-token-secret-key';
 const ACCESS_TOKEN_EXPIRATION = '7d';
 const REFRESH_TOKEN_EXPIRATION = '30d';
+
+// ==========================================
+// Google OAuth 配置
+// ==========================================
+const googleConfig = {
+  clientId: process.env.GOOGLE_CLIENT_ID,
+  clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+  redirectUri: process.env.GOOGLE_CALLBACK_URL,
+};
 
 // ==========================================
 // Token 生成輔助函數
@@ -228,12 +237,12 @@ router.post('/auth/login', async (req: any, res: any) => {
 
     // 生成 tokens
     const accessToken = generateAccessToken({
-      sub: user.id,
+      sub: String(user.id),
       email: user.email || '',
       role: userRole,
     });
 
-    const refreshToken = generateRefreshToken(user.id);
+    const refreshToken = generateRefreshToken(String(user.id));
 
     console.log('[POST /auth/login] Success:', { id: user.id, role: userRole });
 
@@ -310,12 +319,12 @@ const handleRoleSelect = async (req: any, res: any) => {
 
     // 生成新的 tokens（包含更新後的角色）
     const accessToken = generateAccessToken({
-      sub: updatedUser.id,
+      sub: String(updatedUser.id),
       email: updatedUser.email || '',
       role: userRole,
     });
 
-    const refreshToken = generateRefreshToken(updatedUser.id);
+    const refreshToken = generateRefreshToken(String(updatedUser.id));
 
     const response = {
       success: true,
@@ -460,14 +469,14 @@ router.post('/auth/refresh', async (req: any, res: any) => {
     // 生成新的 access token
     const userRole = user.role || 'client';
     const newAccessToken = generateAccessToken({
-      sub: user.id,
+      sub: String(user.id),
       email: user.email || '',
       role: userRole,
     });
 
     // 企業級：可選的 Refresh Token Rotation（增強安全性）
     // 生成新的 refresh token（舊的自動失效）
-    const newRefreshToken = generateRefreshToken(user.id);
+    const newRefreshToken = generateRefreshToken(String(user.id));
 
     console.log(`[AUTH] Token refreshed for user ${user.id} at ${new Date().toISOString()}`);
 
@@ -965,24 +974,52 @@ router.post('/auth/google/callback', async (req: any, res: any) => {
     // 步驟 2：使用 authorization code 交換 token
     // ==========================================
     console.log('[POST /auth/google/callback] Exchanging code for tokens...');
+    console.log('[POST /auth/google/callback] Config:', {
+      clientId: googleConfig.clientId ? 'SET' : 'MISSING',
+      clientSecret: googleConfig.clientSecret ? 'SET' : 'MISSING',
+      redirectUri: googleConfig.redirectUri,
+    });
+
+    // ✅ Google OAuth API 要求使用 application/x-www-form-urlencoded 格式
+    // ✅ redirect_uri 必須與前端 @react-oauth/google 使用的完全一致
+    // 默認情況下，@react-oauth/google 使用當前頁面的 origin（如 http://localhost:5173）
+    const redirectUri = googleConfig.redirectUri || `${process.env.CLIENT_URL || 'http://localhost:5173'}`;
+    
+    const params = new URLSearchParams();
+    params.append('code', code);
+    params.append('client_id', googleConfig.clientId || clientId || '');
+    params.append('client_secret', googleConfig.clientSecret || '');
+    params.append('redirect_uri', redirectUri);
+    params.append('grant_type', 'authorization_code');
+    
+    console.log('[POST /auth/google/callback] Token exchange params:', {
+      codeLength: code?.length,
+      clientId: googleConfig.clientId ? 'SET' : 'MISSING',
+      clientSecret: googleConfig.clientSecret ? 'SET' : 'MISSING',
+      redirectUri: redirectUri,
+    });
 
     const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
       },
-      body: JSON.stringify({
-        code,
-        client_id: process.env.VITE_GOOGLE_CLIENT_ID || clientId,
-        client_secret: process.env.GOOGLE_CLIENT_SECRET,
-        redirect_uri: `${process.env.CLIENT_URL || 'http://localhost:5173'}/auth/google-callback`,
-        grant_type: 'authorization_code',
-      }),
+      body: params.toString(),
     });
 
     if (!tokenResponse.ok) {
-      const errorData = await tokenResponse.json();
-      console.error('[POST /auth/google/callback] ❌ Token exchange failed:', errorData);
+      const errorText = await tokenResponse.text();
+      let errorData;
+      try {
+        errorData = JSON.parse(errorText);
+      } catch {
+        errorData = { error: errorText };
+      }
+      console.error('[POST /auth/google/callback] ❌ Token exchange failed:', {
+        status: tokenResponse.status,
+        statusText: tokenResponse.statusText,
+        error: errorData,
+      });
       return res.status(400).json({
         success: false,
         error: 'Failed to exchange authorization code',

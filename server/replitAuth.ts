@@ -6,7 +6,7 @@ import crypto from "crypto";
 import jwt from "jsonwebtoken";
 
 import { db, pool } from "./db";
-import { users, type User } from "@shared/schema";
+import { users, type User } from "./db/schema";
 import { eq } from "drizzle-orm";
 
 // --- Local email/password auth for development ---
@@ -540,9 +540,12 @@ export const verifyJWT: RequestHandler = async (req: any, res, next) => {
   }
 };
 
+// ✅ 統一認證中間件：優先使用 session，其次使用 Bearer JWT
 export const isAuthenticated: RequestHandler = (req, res, next) => {
+  // 先走 session（原有邏輯）
   if (req.isAuthenticated && req.isAuthenticated()) {
     return next();
   }
-  return res.status(401).json({ message: "Unauthorized" });
+  // 若沒有 session，改用 JWT 驗證
+  return verifyJWT(req as any, res as any, next);
 };

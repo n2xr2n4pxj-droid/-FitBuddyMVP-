@@ -125,13 +125,16 @@ apiClient.interceptors.request.use(
       const refreshToken = tokenManager.getRefreshToken();
       if (refreshToken) {
         try {
-          const baseURL = import.meta.env.VITE_API_BASE_URL || '';
+          const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
           const response = await axios.post<RefreshTokenResponse>(
             `${baseURL}/api/auth/refresh`,
             { refreshToken }
           );
           tokenManager.setAccessToken(response.data.token);
           tokenManager.setRefreshToken(response.data.refreshToken);
+          
+          // ✅ 更新當前請求的 Authorization header
+          config.headers.Authorization = `Bearer ${response.data.token}`;
         } catch (error) {
           // 刷新失敗，清除 token
           tokenManager.clear();
@@ -191,7 +194,7 @@ apiClient.interceptors.response.use(
           }
 
           // 調用 refresh 端點
-          const baseURL = import.meta.env.VITE_API_BASE_URL || '';
+          const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
           const response = await axios.post<RefreshTokenResponse>(
             `${baseURL}/api/auth/refresh`,
             { refreshToken }
@@ -205,6 +208,10 @@ apiClient.interceptors.response.use(
 
           // 通知所有等待的請求
           onRefreshed(newAccessToken);
+
+          // ✅ 更新原始請求的 Authorization header
+          originalRequest.headers = originalRequest.headers || {};
+          originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
 
           // 重試原始請求
           return apiClient(originalRequest);

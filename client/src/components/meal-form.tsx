@@ -7,6 +7,7 @@ import { insertMealSchema, type InsertMeal } from "@shared/schema";
 import type { MealFormData, ServingSizeUnit, FoodSearchResult } from "@/types/meal";
 import { calculateNutrientsForServing, getUSDAStandardValues } from "@/lib/nutrition";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiClient } from "@/lib/api-client";
 import { useToast } from "@/hooks/use-toast";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { Button } from "@/components/ui/button";
@@ -57,14 +58,8 @@ export function MealForm() {
   const { data: searchResults = [], isLoading: isSearching, error: searchError } = useQuery<FoodSearchResult[]>({
     queryKey: ["/api/nutrition/search", searchQuery],
     queryFn: async () => {
-      const response = await fetch(`/api/nutrition/search/${encodeURIComponent(searchQuery)}`, {
-        credentials: "include",
-      });
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `${response.status}: ${response.statusText}`);
-      }
-      return response.json();
+      const response = await apiClient.get<FoodSearchResult[]>(`/api/nutrition/search/${encodeURIComponent(searchQuery)}`);
+      return response.data;
     },
     enabled: searchQuery.length >= 2,
   });
@@ -73,9 +68,9 @@ export function MealForm() {
     mutationFn: async (data: InsertMeal) => {
       console.log("🟡 [MealForm] mutationFn called with data:", data);
       try {
-        const response = await apiRequest("POST", "/api/meals", data);
-        console.log("🟡 [MealForm] API request successful:", response);
-        return response;
+        const result = await apiRequest("POST", "/api/meals", data);
+        console.log("🟡 [MealForm] API request successful:", result);
+        return result;
       } catch (error) {
         console.error("🔴 [MealForm] API request failed:", error);
         throw error;

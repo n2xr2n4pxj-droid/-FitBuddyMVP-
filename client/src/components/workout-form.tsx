@@ -42,7 +42,7 @@ export function WorkoutForm() {
 
   const mutation = useMutation({
     mutationFn: async (data: InsertWorkout) => {
-      await apiRequest("POST", "/api/workouts", data);
+      return await apiRequest("POST", "/api/workouts", data);
     },
     onSuccess: () => {
       const today = format(new Date(), "yyyy-MM-dd");
