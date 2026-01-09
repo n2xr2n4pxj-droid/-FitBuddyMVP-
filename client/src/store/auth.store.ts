@@ -78,13 +78,8 @@ export const useAuthStore = create<AuthState>()(
 
       // ========== 登入 ==========
       login: async function(email: string, password: string) {
-        // ✅ 詳細日誌：記錄實際傳入的參數（在類型檢查之前）
+        // ✅ 詳細日誌：記錄實際傳入的參數
         console.log('[auth.store] login called with:', {
-          firstArg: arguments[0],
-          firstArgType: typeof arguments[0],
-          secondArg: arguments[1],
-          secondArgType: typeof arguments[1],
-          allArgs: Array.from(arguments),
           emailParam: email,
           emailParamType: typeof email,
           passwordParam: password,
@@ -151,6 +146,10 @@ export const useAuthStore = create<AuthState>()(
 
           const { user, token, refreshToken } = response.data;
 
+          if (!token || !refreshToken) {
+            throw new Error('Missing token or refreshToken in response');
+          }
+
           tokenManager.setAccessToken(token);
           tokenManager.setRefreshToken(refreshToken);
 
@@ -164,7 +163,9 @@ export const useAuthStore = create<AuthState>()(
             needsVerification: false, // ✅ 清除標記
           });
 
-          logger.info('AUTH', 'Login successful', { userId: user.id });
+          if (user) {
+            logger.info('AUTH', 'Login successful', { userId: user.id });
+          }
         } catch (err: any) {
           // ✅ 檢查是否是 403 錯誤（郵箱未驗證）
           if (err.response?.status === 403 && err.response?.data?.needsVerification) {
@@ -235,6 +236,10 @@ export const useAuthStore = create<AuthState>()(
           const response = await api.auth.selectRole(role);
           const { user, token, refreshToken } = response.data;
 
+          if (!token || !refreshToken) {
+            throw new Error('Missing token or refreshToken in response');
+          }
+
           tokenManager.setAccessToken(token);
           tokenManager.setRefreshToken(refreshToken);
 
@@ -246,7 +251,9 @@ export const useAuthStore = create<AuthState>()(
             lastRefreshTime: Date.now(),
           });
 
-          logger.info('AUTH', 'Role selected successfully', { userId: user.id, role });
+          if (user) {
+            logger.info('AUTH', 'Role selected successfully', { userId: user.id, role });
+          }
         } catch (err: any) {
           const errorMsg = err.response?.data?.error || err.response?.data?.message || err.message || 'Role selection failed';
           set({
@@ -264,6 +271,9 @@ export const useAuthStore = create<AuthState>()(
 
         try {
           const response = await api.auth.me();
+          if (!response.data) {
+            throw new Error('No user data in response');
+          }
           set({
             user: response.data,
             isAuthenticated: true,

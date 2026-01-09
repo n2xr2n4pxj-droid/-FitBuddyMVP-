@@ -3,12 +3,12 @@
 # FitBuddy 邀請 API 測試腳本
 # 測試完整的邀請流程：註冊教練 -> 登入 -> 發送邀請 -> 檢查狀態 -> 接受邀請
 
-API_BASE="http://localhost:3000"
-COACH_EMAIL="coach_test_$(date +%s)@example.com"
-COACH_PASSWORD="CoachPassword123!"
-CLIENT_EMAIL="client_test_$(date +%s)@example.com"
-CLIENT_NAME="測試客戶"
-CLIENT_PASSWORD="ClientPassword123!"
+API_BASE="${API_BASE:-http://localhost:3000}"
+COACH_EMAIL="${COACH_EMAIL:-coach_test_$(date +%s)@example.com}"
+COACH_PASSWORD="${COACH_PASSWORD:-TestCoachPassword123!}"
+CLIENT_EMAIL="${CLIENT_EMAIL:-client_test_$(date +%s)@example.com}"
+CLIENT_NAME="${CLIENT_NAME:-測試客戶}"
+CLIENT_PASSWORD="${CLIENT_PASSWORD:-TestClientPassword123!}"
 
 echo "=========================================="
 echo "FitBuddy 邀請 API 測試"

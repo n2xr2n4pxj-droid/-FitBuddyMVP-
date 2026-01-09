@@ -1,6 +1,7 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useLocation } from 'wouter';
 import type { UserRole } from '@/types/auth';
+import { normalizeRole, isCoach, isClient, isAdmin } from '@/types/auth';
 import { useAuth } from '@/hooks/useAuth';
 
 interface ProtectedRouteProps {
@@ -95,7 +96,7 @@ export const useCurrentUser = () => {
         if (!response.ok) throw new Error('Failed');
 
         const userData = await response.json();
-        const normalizedRole = normalizeRole(userData.role || 'USER');
+        const normalizedRole = normalizeRole(userData.role || 'USER') as UserRole;
         
         setUser({
           ...userData,

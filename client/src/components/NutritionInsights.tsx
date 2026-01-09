@@ -21,7 +21,7 @@ export default function NutritionInsights({ meals, goals }: InsightsProps) {
     const dailyTotals: { [date: string]: { calories: number; protein: number; carbs: number; fat: number } } = {};
     
     meals.forEach(meal => {
-      const mealDate = new Date(meal.date || meal.createdAt);
+      const mealDate = new Date(meal.consumedAt || meal.createdAt);
       const date = mealDate.toLocaleDateString();
       if (!dailyTotals[date]) {
         dailyTotals[date] = { calories: 0, protein: 0, carbs: 0, fat: 0 };

@@ -4,7 +4,7 @@
 
 ### 錯誤信息
 ```
-pg_dump: error: connection to server on socket "/tmp/.s.PGSQL.5432" failed: FATAL:  database "gordon" does not exist
+pg_dump: error: connection to server on socket "/tmp/.s.PGSQL.5432" failed: FATAL:  database "your_database" does not exist
 ```
 
 ### 問題原因
@@ -49,7 +49,7 @@ cat .env | grep DATABASE_URL
 ### 方法 1: 從 server/.env.local 加載環境變量
 
 ```bash
-cd /Users/gordon/Desktop/FitBuddyMVP
+cd /path/to/your/project
 
 # 加載環境變量（如果文件在 server/.env.local）
 export $(cat server/.env.local | grep -v '^#' | xargs)
@@ -61,7 +61,7 @@ npx dotenv -e server/.env.local -- pg_dump $DATABASE_URL > backup.sql
 ### 方法 2: 直接指定 DATABASE_URL
 
 ```bash
-cd /Users/gordon/Desktop/FitBuddyMVP
+cd /path/to/your/project
 
 # 從環境變量文件讀取 DATABASE_URL
 DATABASE_URL=$(grep DATABASE_URL server/.env.local | cut -d '=' -f2- | tr -d '"' | tr -d "'")
@@ -151,7 +151,7 @@ node backup-db.mjs
 ### 如果環境變量在 server/.env.local
 
 ```bash
-cd /Users/gordon/Desktop/FitBuddyMVP
+cd /path/to/your/project
 
 # 方法 A: 使用 source（需要先處理文件格式）
 set -a

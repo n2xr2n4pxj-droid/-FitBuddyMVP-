@@ -3,7 +3,7 @@
 ## ❌ 錯誤信息
 
 ```bash
-pg_dump: error: connection to server on socket "/tmp/.s.PGSQL.5432" failed: FATAL:  database "gordon" does not exist
+pg_dump: error: connection to server on socket "/tmp/.s.PGSQL.5432" failed: FATAL:  database "your_database" does not exist
 ```
 
 ## 🔍 問題原因
@@ -25,8 +25,8 @@ source .env.local  # ❌ 文件不存在於根目錄
 當 `DATABASE_URL` 環境變量未設置時：
 - `pg_dump` 會嘗試連接本地 PostgreSQL 服務器
 - 使用默認 socket：`/tmp/.s.PGSQL.5432`
-- 使用當前用戶名作為資料庫名：`gordon`
-- 因此出現錯誤：`database "gordon" does not exist`
+- 使用當前用戶名作為資料庫名（如果未設置 DATABASE_URL）
+- 因此可能出現錯誤：`database "your_database" does not exist`
 
 ### 3. DATABASE_URL 格式
 
@@ -42,14 +42,14 @@ DATABASE_URL=postgres://username@localhost:5432/database_name
 ### 方法 1: 使用提供的備份腳本（推薦）
 
 ```bash
-cd /Users/gordon/Desktop/FitBuddyMVP
+cd /path/to/your/project
 ./backup-db.sh
 ```
 
 ### 方法 2: 手動加載環境變量
 
 ```bash
-cd /Users/gordon/Desktop/FitBuddyMVP
+cd /path/to/your/project
 
 # 從 server/.env.local 讀取並設置 DATABASE_URL
 export DATABASE_URL=$(grep DATABASE_URL server/.env.local | cut -d '=' -f2- | tr -d '"' | tr -d "'" | tr -d ' ')
@@ -116,7 +116,7 @@ psql "$DATABASE_URL" -c "SELECT version();"
 ## 🎯 快速修復命令
 
 ```bash
-cd /Users/gordon/Desktop/FitBuddyMVP
+cd /path/to/your/project
 
 # 一行命令完成備份
 export DATABASE_URL=$(grep DATABASE_URL server/.env.local | cut -d '=' -f2- | tr -d '"' | tr -d "'" | tr -d ' ') && \

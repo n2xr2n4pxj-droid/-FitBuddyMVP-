@@ -19,7 +19,9 @@ export default function AuthRegisterPage() {
     lastName: "",
   });
   const [validationError, setValidationError] = useState("");
-  const { register, registerLoading, registerError } = useAuth();
+  const { register, isLoading, error } = useAuth();
+  const registerLoading = isLoading;
+  const registerError = error;
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -79,7 +81,7 @@ export default function AuthRegisterPage() {
 
   const errorMessage =
     validationError ||
-    (registerError instanceof Error ? registerError.message : "註冊失敗，請重試");
+    (typeof registerError === 'string' ? registerError : (registerError && typeof registerError === 'object' && 'message' in registerError ? String((registerError as any).message) : "註冊失敗，請重試"));
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center py-12 px-4">
@@ -114,7 +116,7 @@ export default function AuthRegisterPage() {
                     placeholder="John"
                     value={formData.firstName}
                     onChange={handleChange}
-                    disabled={registerLoading}
+                    disabled={registerLoading || isLoading}
                   />
                 </div>
                 <div className="space-y-2">
@@ -128,7 +130,7 @@ export default function AuthRegisterPage() {
                     placeholder="Doe"
                     value={formData.lastName}
                     onChange={handleChange}
-                    disabled={registerLoading}
+                    disabled={registerLoading || isLoading}
                   />
                 </div>
               </div>
@@ -146,7 +148,7 @@ export default function AuthRegisterPage() {
                   value={formData.email}
                   onChange={handleChange}
                   required
-                  disabled={registerLoading}
+                  disabled={registerLoading || isLoading}
                 />
               </div>
 
@@ -163,7 +165,7 @@ export default function AuthRegisterPage() {
                   value={formData.password}
                   onChange={handleChange}
                   required
-                  disabled={registerLoading}
+                  disabled={registerLoading || isLoading}
                 />
               </div>
 
@@ -180,7 +182,7 @@ export default function AuthRegisterPage() {
                   value={formData.confirmPassword}
                   onChange={handleChange}
                   required
-                  disabled={registerLoading}
+                  disabled={registerLoading || isLoading}
                 />
               </div>
 

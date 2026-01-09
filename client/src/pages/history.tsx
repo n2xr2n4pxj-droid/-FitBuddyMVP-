@@ -38,7 +38,7 @@ export default function History() {
     }
 
     return meals.filter(meal => {
-      const mealDate = new Date(meal.date || meal.createdAt);
+      const mealDate = new Date(meal.consumedAt || meal.createdAt);
       return isWithinInterval(mealDate, {
         start: startOfDay(startDate),
         end: endOfDay(now)
@@ -58,7 +58,7 @@ export default function History() {
     }>();
 
     filteredMeals.forEach(meal => {
-      const mealDate = new Date(meal.date || meal.createdAt);
+      const mealDate = new Date(meal.consumedAt || meal.createdAt);
       const dateKey = format(mealDate, "yyyy-MM-dd");
       
       if (!dataMap.has(dateKey)) {

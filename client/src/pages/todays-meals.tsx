@@ -81,15 +81,15 @@ export default function TodaysMeals() {
       console.log('🔵 [Frontend] Fetching meals from:', url);
       try {
         const response = await apiClient.get(url);
-        return response.data;
+        const data = response.data;
+        console.log('🔵 [Frontend] Meals fetched:', data);
+        return data;
       } catch (error: any) {
         if (error.response?.status === 401) {
           return [];
         }
         throw error;
       }
-      console.log('🔵 [Frontend] Meals fetched:', data);
-      return data;
     },
     enabled: isAuthenticated,
   });
@@ -102,7 +102,7 @@ export default function TodaysMeals() {
 
   const { data: todaySummary } = useQuery<DailySummary>({
     queryKey: ["/api/summary/daily", today],
-    queryFn: createQueryFn<Workout[]>({ on401: "returnNull" }),
+    queryFn: createQueryFn<DailySummary>({ on401: "returnNull" }),
     enabled: isAuthenticated,
   });
 

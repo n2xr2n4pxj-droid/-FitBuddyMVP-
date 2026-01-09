@@ -1,22 +1,47 @@
-node_modules
-dist
-.DS_Store
-server/public
-vite.config.ts.*
-*.tar.gz.env
-.env.local
+# Dependencies
+node_modules/
+dist/
+build/
 
-# 環境變量文件（包含敏感信息，絕對不能提交）
+# Environment variables
 .env
-.env.*
-!.env.example
-*.env
+.env.local
+.env.*.local
 
-# Replit 配置文件（包含 Semgrep 規則，可能觸發 GitHub 推送保護）
-.config/replit/
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# 數據庫備份文件（可能包含敏感數據）
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Replit configuration (may contain example patterns that trigger GitHub Push Protection)
+.config/replit/.semgrep/
+
+# Database
+*.db
+*.sqlite
+
+# Database backups
+*.sql
+!**/migrations/*.sql
+!**/drizzle/**/*.sql
 backups/
-fitbuddy_backup_*.sql
-*.backup.sql
-# 注意：drizzle/ 目錄下的遷移文件應該保留在 Git 中
+*.backup
+*.bak
+
+# Build outputs
+*.tsbuildinfo
+
+# Husky should be tracked (不要忽略 .husky 目錄)
+!.husky/

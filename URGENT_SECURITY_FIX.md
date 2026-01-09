@@ -2,9 +2,9 @@
 
 ## 問題嚴重性
 GitGuardian 檢測到 `.env` 文件被提交到 GitHub，包含真實的敏感信息：
-- **DATABASE_URL**: `postgresql://neondb_owner:npg_f6xQICEa3Arc@...` (真實的數據庫連接字符串)
-- **SESSION_SECRET**: `fitbuddy-dev-secret-key-2024`
-- **USDA_API_KEY**: `bbxc7LVv2awhyHMje6IifRed0iMJWcpaPwtlD4YX`
+- **DATABASE_URL**: 包含真實的數據庫連接字符串（已移除敏感部分）
+- **SESSION_SECRET**: 包含開發環境的 session secret（已更換）
+- **USDA_API_KEY**: 包含 USDA API key（已撤銷並重新生成）
 
 ## ⚠️ 立即行動步驟
 

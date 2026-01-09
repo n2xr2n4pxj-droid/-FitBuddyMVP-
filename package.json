@@ -15,8 +15,9 @@
     "db:push": "drizzle-kit push --config=drizzle.config.cjs",
     "db:generate": "drizzle-kit generate --config=drizzle.config.cjs",
     "db:studio": "drizzle-kit studio --config=drizzle.config.cjs",
-    "db:clean": "psql -h localhost -U gordon -d fitbuddy -c \"DELETE FROM users;\"",
-    "db:reset": "psql -h localhost -U gordon -d fitbuddy -c \"DELETE FROM users; DELETE FROM coaching_sessions;\""
+    "db:clean": "psql $DATABASE_URL -c \"DELETE FROM users;\"",
+    "db:reset": "psql $DATABASE_URL -c \"DELETE FROM users; DELETE FROM coaching_sessions;\"",
+    "prepare": "husky"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -120,6 +121,8 @@
     "concurrently": "^9.2.1",
     "drizzle-kit": "^0.31.8",
     "esbuild": "^0.25.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.2.11",
     "postcss": "^8.5.6",
     "prisma": "^6.19.1",
     "tailwindcss": "^3.4.18",

@@ -13,7 +13,7 @@ import {
   type InsertWorkout,
   type DailySummary,
   type WeeklySummary,
-} from "../../shared/schema";
+} from "../shared/schema";
 import { db, pool } from "./db";
 import { eq, and, gte, lte, desc, sql } from "drizzle-orm";
 import { format, subDays, startOfDay, endOfDay } from "date-fns";
@@ -64,44 +64,49 @@ export class DatabaseStorage implements IStorage {
       id: row.id,
       email: row.email,
       passwordHash: row.password_hash,
-      firstName: row.first_name,
-      lastName: row.last_name,
-      role: row.role || 'client',
-      profileImageUrl: null, // 數據庫中沒有此欄位，設為 null
+      firstName: row.first_name || null,
+      lastName: row.last_name || null,
+      role: (row.role || 'USER') as "USER" | "COACH" | "BOTH" | "ADMIN",
+      avatar: null, // 數據庫中沒有此欄位，設為 null
       createdAt: row.created_at,
       updatedAt: row.updated_at,
       emailVerified: row.email_verified || false,
-      // ✅ 修復：這些欄位在資料庫中不存在，設為 null
-      gender: null,
-      age: null,
-      heightCm: null,
-      currentWeightKg: null,
-      bodyFatPercentage: null,
-      activityLevel: null,
-      bmr: null,
-      tdee: null,
-      goalType: null,
-      goalCalories: null,
-      proteinG: null,
-      carbsG: null,
-      fatG: null,
-      lastTdeeUpdate: null,
-    } as User;
+      emailVerificationToken: row.email_verification_token || null,
+      emailVerificationExpires: row.email_verification_expires || null,
+    } as unknown as User;
   }
 
   async upsertUser(userData: UpsertUser): Promise<User> {
-    const [user] = await db
-      .insert(users)
-      .values(userData)
-      .onConflictDoUpdate({
-        target: users.id,
-        set: {
-          ...userData,
-          updatedAt: new Date(),
-        },
-      })
-      .returning();
-    return user;
+    // UpsertUser 不包含 passwordHash，所以使用原始 SQL 進行 upsert
+    // 只更新允許的字段，不觸及 passwordHash
+    const result = await pool.query(
+      `INSERT INTO users (id, email, first_name, last_name, avatar, password_hash, role, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, '', 'USER', NOW(), NOW())
+       ON CONFLICT (id) DO UPDATE 
+       SET email = EXCLUDED.email,
+           first_name = EXCLUDED.first_name,
+           last_name = EXCLUDED.last_name,
+           avatar = EXCLUDED.avatar,
+           updated_at = NOW()
+       RETURNING *`,
+      [userData.id, userData.email || '', userData.firstName || null, userData.lastName || null, userData.avatar || null]
+    );
+    
+    const row = result.rows[0];
+    return {
+      id: row.id,
+      email: row.email,
+      passwordHash: row.password_hash,
+      firstName: row.first_name || null,
+      lastName: row.last_name || null,
+      role: (row.role || 'USER') as "USER" | "COACH" | "BOTH" | "ADMIN",
+      avatar: row.avatar || null,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      emailVerified: row.email_verified || false,
+      emailVerificationToken: row.email_verification_token || null,
+      emailVerificationExpires: row.email_verification_expires || null,
+    } as unknown as User;
   }
 
   async updateUserTDEE(userId: string, tdeeData: UpdateUserTDEE): Promise<User> {
@@ -373,47 +378,55 @@ export class DatabaseStorage implements IStorage {
       [userId, start, end]
     );
 
-    // 轉換為 Workout 格式（匹配 shared/schema.ts 的類型）
+    // 轉換為 Workout 格式（匹配 server/db/schema.ts 的類型）
     return result.rows.map(row => ({
       id: row.id,
       userId: row.user_id,
-      workoutType: row.workout_type?.toLowerCase() || row.workout_type,
-      durationMinutes: row.duration, // 映射 duration -> durationMinutes
-      date: row.performed_at, // 映射 performedAt -> date
-      notes: row.notes,
-      exercises: row.exercises, // 保留 exercises JSON
-      createdAt: row.created_at,
-    }));
+      name: row.name || 'Workout',
+      workoutType: (row.workout_type?.toUpperCase() || 'OTHER') as "STRENGTH" | "CARDIO" | "FLEXIBILITY" | "SPORTS" | "OTHER",
+      duration: row.duration || 0,
+      performedAt: row.performed_at || new Date(),
+      notes: row.notes || null,
+      description: null,
+      exercises: row.exercises || null,
+      caloriesBurned: null,
+      intensity: null,
+      photos: null,
+      createdAt: row.created_at || new Date(),
+      updatedAt: row.updated_at || row.created_at || new Date(),
+    })) as Workout[];
   }
 
   async createWorkout(userId: string, workoutData: InsertWorkout): Promise<Workout> {
     console.log("[createWorkout] Starting with:", { userId, workoutData });
     
-    try {
-      // 使用原始 SQL，匹配實際數據庫 schema (duration, performed_at, name)
-      // 根據 migration 文件，workouts 表需要 name 欄位（NOT NULL）
-      const workoutType = workoutData.workoutType || 'OTHER';
-      const workoutName = workoutData.name || workoutType || 'Workout'; // name 欄位是必需的
-      const duration = workoutData.durationMinutes || 0;
-      const performedAt = workoutData.date || new Date();
-      const notes = workoutData.notes || null;
-      const exercises = (workoutData as any).exercises || null; // 支持 exercises JSON
+    // 將變量定義在 try 塊外，以便在 catch 中訪問
+    const workoutType = workoutData.workoutType || 'OTHER';
+    // InsertWorkout 沒有 name 字段，但 server/db/schema.ts 的 workouts 表需要 name 字段
+    // 使用 workoutType 作為 name，或從 workoutData 中獲取（如果存在）
+    const workoutName = (workoutData as any).name || workoutType || 'Workout'; // name 欄位是必需的
+    const duration = workoutData.durationMinutes || 0;
+    const performedAt = workoutData.date || new Date();
+    const notes = workoutData.notes || null;
+    const exercises = (workoutData as any).exercises || null; // 支持 exercises JSON
 
-      const sqlQuery = `
-        INSERT INTO workouts (user_id, name, workout_type, duration, performed_at, notes, exercises)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        RETURNING id, user_id, name, workout_type, duration, performed_at, notes, exercises, created_at
-      `;
-      
-      const values = [
-        userId,
-        workoutName, // name 欄位是必需的
-        workoutType,
-        duration,
-        performedAt,
-        notes,
-        exercises, // exercises JSON 欄位
-      ];
+    const sqlQuery = `
+      INSERT INTO workouts (user_id, name, workout_type, duration, performed_at, notes, exercises)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING id, user_id, name, workout_type, duration, performed_at, notes, exercises, created_at
+    `;
+    
+    const values = [
+      userId,
+      workoutName, // name 欄位是必需的
+      workoutType,
+      duration,
+      performedAt,
+      notes,
+      exercises, // exercises JSON 欄位
+    ];
+
+    try {
 
       console.log("[createWorkout] Executing SQL:", sqlQuery);
       console.log("[createWorkout] Values:", values);
@@ -427,16 +440,22 @@ export class DatabaseStorage implements IStorage {
       const row = result.rows[0];
       console.log("[createWorkout] Raw database row:", row);
 
-      // 轉換為 Workout 格式（匹配 shared/schema.ts 的類型）
-      const workout: any = {
+      // 轉換為 Workout 格式（匹配 server/db/schema.ts 的類型）
+      const workout: Workout = {
         id: row.id,
         userId: row.user_id,
-        workoutType: row.workout_type?.toLowerCase() || row.workout_type,
-        durationMinutes: row.duration, // 映射 duration -> durationMinutes
-        date: row.performed_at, // 映射 performed_at -> date
-        notes: row.notes,
-        exercises: row.exercises, // 保留 exercises JSON
-        createdAt: row.created_at || new Date(), // 如果數據庫沒有返回 created_at，使用當前時間
+        name: row.name || 'Workout',
+        workoutType: (row.workout_type?.toUpperCase() || 'OTHER') as "STRENGTH" | "CARDIO" | "FLEXIBILITY" | "SPORTS" | "OTHER",
+        duration: row.duration || 0,
+        performedAt: row.performed_at || new Date(),
+        notes: row.notes || null,
+        description: null,
+        exercises: row.exercises || null,
+        caloriesBurned: null,
+        intensity: null,
+        photos: null,
+        createdAt: row.created_at || new Date(),
+        updatedAt: row.updated_at || row.created_at || new Date(),
       };
 
       console.log("[createWorkout] Successfully created workout:", workout);
@@ -495,7 +514,7 @@ export class DatabaseStorage implements IStorage {
       .from(meals)
       .where(
         and(
-          eq(meals.userId, userId),
+          eq(meals.userId, typeof userId === 'number' ? userId : parseInt(userId, 10)),
           gte(meals.consumedAt, start),
           lte(meals.consumedAt, end)
         )

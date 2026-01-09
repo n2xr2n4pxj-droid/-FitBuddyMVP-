@@ -6,7 +6,9 @@ import { offlineManager } from './offline-manager';
 export interface AuthResponse {
   success?: boolean;
   message?: string;
-  user: {
+  needsVerification?: boolean; // 郵箱驗證標記
+  error?: string; // 錯誤訊息
+  user?: {
     id: string;
     email: string;
     firstName: string | null;
@@ -15,8 +17,23 @@ export interface AuthResponse {
     role: 'client' | 'coach' | 'admin' | 'both';
     createdAt: string | null;
   };
-  token: string;
-  refreshToken: string; // ✨ 企業級：新增
+  token?: string;
+  refreshToken?: string; // ✨ 企業級：新增
+  data?: {
+    needsVerification?: boolean;
+    error?: string;
+    user?: {
+      id: string;
+      email: string;
+      firstName: string | null;
+      lastName: string | null;
+      avatar: string | null;
+      role: 'client' | 'coach' | 'admin' | 'both';
+      createdAt: string | null;
+    };
+    token?: string;
+    refreshToken?: string;
+  };
 }
 
 export interface RefreshTokenResponse {

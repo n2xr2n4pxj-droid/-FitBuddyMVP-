@@ -66,14 +66,14 @@ export default function Trends() {
 
   const dailyData = useMemo(() => {
     const filteredMeals = meals.filter((meal) => {
-      const mealDate = new Date(meal.date || meal.createdAt);
+      const mealDate = new Date(meal.consumedAt || meal.createdAt);
       return mealDate >= dateRange.startDate && mealDate <= dateRange.endDate;
     });
 
     const dataByDate: { [key: string]: DailyData } = {};
 
     filteredMeals.forEach((meal) => {
-      const mealDate = new Date(meal.date || meal.createdAt);
+      const mealDate = new Date(meal.consumedAt || meal.createdAt);
       const date = mealDate.toLocaleDateString("en-US", {
         month: "numeric",
         day: "numeric",
@@ -183,17 +183,17 @@ export default function Trends() {
     }
 
     const filteredMeals = meals.filter((meal) => {
-      const mealDate = new Date(meal.date || meal.createdAt);
+      const mealDate = new Date(meal.consumedAt || meal.createdAt);
       return mealDate >= dateRange.startDate && mealDate <= dateRange.endDate;
     }).map(meal => {
-      const mealDate = meal.date || meal.createdAt;
+      const mealDate = meal.consumedAt || meal.createdAt;
       const dateStr = typeof mealDate === 'string' 
         ? mealDate 
         : new Date(mealDate).toISOString();
       
       return {
         id: typeof meal.id === 'string' ? parseInt(meal.id, 10) || 0 : Number(meal.id) || 0,
-        name: meal.foodName || 'Unknown Food',
+        name: meal.name || 'Unknown Food',
         mealType: meal.mealType,
         calories: Number(meal.calories || 0),
         protein: Number(meal.protein || 0),

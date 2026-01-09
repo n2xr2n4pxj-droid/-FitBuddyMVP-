@@ -88,7 +88,7 @@ secret: process.env.SESSION_SECRET || "dev-session-secret"
 
 ### 1. 硬編碼的真實郵箱地址 ✅
 - **文件**: `server/src/server.js` (第 19 行)
-- **問題**: 硬編碼了真實郵箱 `gordonlai87@gmail.com`
+- **問題**: 硬編碼了真實郵箱地址
 - **修復**: 已改為使用環境變量 `process.env.SENDGRID_FROM_EMAIL || 'support@fitbuddy.hk'`
 - **狀態**: ✅ 已修復並驗證
 

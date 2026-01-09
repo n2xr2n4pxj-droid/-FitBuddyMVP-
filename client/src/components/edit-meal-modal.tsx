@@ -43,13 +43,13 @@ export default function EditMealModal({
   const form = useForm<InsertMeal>({
     resolver: zodResolver(insertMealSchema),
     defaultValues: {
-      foodName: "",
+      name: "",
       calories: "0",
       protein: "0",
       carbs: "0",
       fat: "0",
-      mealType: "breakfast",
-      date: new Date(),
+      mealType: "BREAKFAST",
+      consumedAt: new Date(),
       servingSize: undefined,
       servingSizeUnit: "g",
       userServingAmount: undefined,
@@ -59,9 +59,18 @@ export default function EditMealModal({
   // Update form when meal changes
   useEffect(() => {
     if (meal) {
-      const mealType = (meal.mealType === "breakfast" || meal.mealType === "lunch" || meal.mealType === "dinner" || meal.mealType === "snack")
-        ? meal.mealType
-        : "breakfast";
+      // 將 mealType 轉換為大寫格式以匹配 schema
+      const mealTypeMap: Record<string, "BREAKFAST" | "LUNCH" | "DINNER" | "SNACK"> = {
+        "breakfast": "BREAKFAST",
+        "BREAKFAST": "BREAKFAST",
+        "lunch": "LUNCH",
+        "LUNCH": "LUNCH",
+        "dinner": "DINNER",
+        "DINNER": "DINNER",
+        "snack": "SNACK",
+        "SNACK": "SNACK",
+      };
+      const mealType = mealTypeMap[meal.mealType?.toLowerCase() || "breakfast"] || "BREAKFAST";
       
       // Get original servingSize (standard serving size, not userServingAmount)
       const originalServingSize = Number(meal.servingSize || 100);
@@ -101,13 +110,13 @@ export default function EditMealModal({
       }
       
       form.reset({
-        foodName: meal.foodName || "",
+        name: meal.name || "",
         calories: String(displayCalories.toFixed(2)),
         protein: String(displayProtein.toFixed(2)),
         carbs: String(displayCarbs.toFixed(2)),
         fat: String(displayFat.toFixed(2)),
         mealType: mealType,
-        date: meal.date ? new Date(meal.date) : new Date(),
+        consumedAt: meal.consumedAt ? new Date(meal.consumedAt) : new Date(),
         servingSize: String(originalServingSize), // Always use original servingSize
         servingSizeUnit: (meal.servingSizeUnit === "g" || meal.servingSizeUnit === "ml") ? meal.servingSizeUnit : "g",
         userServingAmount: String(currentServing),
@@ -149,7 +158,7 @@ export default function EditMealModal({
       await updateMeal.mutateAsync({
         id: meal.id,
         meal: {
-          foodName: data.foodName,
+          name: data.name,
           // ✅ 保留原始標準份量
           servingSize: String(originalValues.servingSize),
           // ✅ 保存用戶實際份量
@@ -218,15 +227,15 @@ export default function EditMealModal({
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
           {/* Food Name */}
           <div className="space-y-2">
-            <Label htmlFor="foodName">Food Name</Label>
+            <Label htmlFor="name">Food Name</Label>
             <Input
-              id="foodName"
-              {...form.register("foodName")}
+              id="name"
+              {...form.register("name")}
               placeholder="Enter food name"
             />
-            {form.formState.errors.foodName && (
+            {form.formState.errors.name && (
               <p className="text-sm text-red-500">
-                {form.formState.errors.foodName.message}
+                {form.formState.errors.name.message}
               </p>
             )}
           </div>
@@ -236,16 +245,16 @@ export default function EditMealModal({
             <Label htmlFor="mealType">Meal Type</Label>
             <Select
               value={form.watch("mealType")}
-              onValueChange={(value) => form.setValue("mealType", value as "breakfast" | "lunch" | "dinner" | "snack")}
+              onValueChange={(value) => form.setValue("mealType", value as "BREAKFAST" | "LUNCH" | "DINNER" | "SNACK")}
             >
               <SelectTrigger>
                 <SelectValue placeholder="Select meal type" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="breakfast">Breakfast</SelectItem>
-                <SelectItem value="lunch">Lunch</SelectItem>
-                <SelectItem value="dinner">Dinner</SelectItem>
-                <SelectItem value="snack">Snack</SelectItem>
+                <SelectItem value="BREAKFAST">Breakfast</SelectItem>
+                <SelectItem value="LUNCH">Lunch</SelectItem>
+                <SelectItem value="DINNER">Dinner</SelectItem>
+                <SelectItem value="SNACK">Snack</SelectItem>
               </SelectContent>
             </Select>
           </div>

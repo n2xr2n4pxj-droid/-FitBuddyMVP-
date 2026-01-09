@@ -56,8 +56,8 @@ AND column_name = 'email_verification_expires';
 
 -- 5. 測試 unique constraint
 INSERT INTO users (email, password_hash, role) 
-VALUES ('gordonlai87@gmail.com', 'hash', 'USER');
--- 應該失敗並顯示 unique constraint 錯誤
+VALUES ('test@example.com', 'hash', 'USER');
+-- 應該失敗並顯示 unique constraint 錯誤（如果該郵箱已存在）
 ```
 
 

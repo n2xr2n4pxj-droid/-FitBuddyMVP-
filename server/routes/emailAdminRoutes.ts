@@ -216,16 +216,10 @@ router.get("/logs/:logId", authMiddleware, requireAdmin, async (req: Request, re
       });
     }
 
-    // 解析 JSON 字段以便展示
-    const enrichedLog = {
-      ...log,
-      errorDetails: log.errorDetails ? JSON.parse(log.errorDetails) : null,
-      sendGridResponse: log.sendGridResponse ? JSON.parse(log.sendGridResponse) : null
-    };
-
+    // emailLogs 表中沒有 errorDetails 和 sendGridResponse 字段，直接返回 log
     res.json({
       success: true,
-      data: enrichedLog
+      data: log
     });
   } catch (error: any) {
     console.error('❌ [Email Admin] 獲取日誌詳情失敗:', error);
@@ -246,29 +240,30 @@ router.get("/stats", authMiddleware, requireAdmin, async (_req: Request, res: Re
     
     const stats = {
       total: allLogs.length,
-      success: allLogs.filter(log => log.success).length,
-      failed: allLogs.filter(log => !log.success).length,
+      success: allLogs.filter(log => log.status === 'sent' || log.status === 'delivered').length,
+      failed: allLogs.filter(log => log.status === 'failed' || log.status === 'bounced').length,
       byType: {} as Record<string, { total: number; success: number; failed: number }>,
       recent: allLogs.slice(0, 10).map(log => ({
         id: log.id,
-        type: log.type,
-        to: log.to,
+        type: log.type || 'general',
+        to: log.recipient_email,
         subject: log.subject,
-        success: log.success,
-        timestamp: log.timestamp
+        success: log.status === 'sent' || log.status === 'delivered',
+        timestamp: log.sent_at
       }))
     };
 
     // 按類型統計
     allLogs.forEach(log => {
-      if (!stats.byType[log.type]) {
-        stats.byType[log.type] = { total: 0, success: 0, failed: 0 };
+      const logType = log.type || 'general';
+      if (!stats.byType[logType]) {
+        stats.byType[logType] = { total: 0, success: 0, failed: 0 };
       }
-      stats.byType[log.type].total++;
-      if (log.success) {
-        stats.byType[log.type].success++;
+      stats.byType[logType].total++;
+      if (log.status === 'sent' || log.status === 'delivered') {
+        stats.byType[logType].success++;
       } else {
-        stats.byType[log.type].failed++;
+        stats.byType[logType].failed++;
       }
     });
 

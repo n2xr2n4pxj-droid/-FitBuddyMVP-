@@ -1,7 +1,7 @@
 /**
  * Nutrition utility functions and data
  * 
- * Contains USDA standard values and nutrition calculation helpers
+ * Contains standard nutrition values and calculation helpers
  */
 
 export type BaseNutrients = {
@@ -12,10 +12,10 @@ export type BaseNutrients = {
 };
 
 /**
- * USDA 標準值庫（硬編碼準確值）
+ * 標準值庫（硬編碼準確值）
  * 這些是常見食物的標準營養值（每 100g）
  */
-export const USDA_STANDARD_VALUES: Record<string, BaseNutrients> = {
+export const STANDARD_VALUES: Record<string, BaseNutrients> = {
   // ===== 肉類 =====
   'chicken breast': {
     calories: 165,
@@ -180,14 +180,18 @@ export const USDA_STANDARD_VALUES: Record<string, BaseNutrients> = {
 };
 
 /**
- * 獲取食物的 USDA 標準值
+ * 獲取食物的標準值
  * @param description 食物描述（會轉換為小寫進行匹配）
  * @returns 標準值對象，如果不存在則返回 null
  */
-export function getUSDAStandardValues(description: string): BaseNutrients | null {
+export function getStandardValues(description: string): BaseNutrients | null {
   const key = description.toLowerCase();
-  return USDA_STANDARD_VALUES[key] || null;
+  return STANDARD_VALUES[key] || null;
 }
+
+// 向後兼容：保留舊函數名
+export const getUSDAStandardValues = getStandardValues;
+export const USDA_STANDARD_VALUES = STANDARD_VALUES;
 
 /**
  * 標準化營養成分到 100g/ml

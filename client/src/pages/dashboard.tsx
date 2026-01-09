@@ -275,8 +275,7 @@ export default function Dashboard() {
 
     try {
       await apiClient.delete(`/api/workouts/${id}`);
-
-      if (!response.ok) throw new Error('Failed to delete workout');
+      // Axios 會自動處理錯誤，如果到這裡說明刪除成功
 
       await loadPersonalBests();
       // 立即刷新 workouts 查詢
@@ -298,70 +297,31 @@ export default function Dashboard() {
   };
 
   const handleEditWorkout = (workout: any) => {
-    // 處理 exercises JSON（如果存在）
-    let exercisesArray: any[] = [];
-    if (workout.exercises) {
-      try {
-        const exercises = typeof workout.exercises === 'string' 
-          ? JSON.parse(workout.exercises) 
-          : workout.exercises;
-        if (Array.isArray(exercises) && exercises.length > 0) {
-          exercisesArray = exercises;
-        }
-      } catch (e) {
-        console.error('Error parsing exercises:', e);
-      }
-    }
-
-    const workoutType = workout.workout_type || workout.workoutType || '';
+    // Workout schema 中沒有 exercises 字段，只使用 workoutType 和 durationMinutes
+    const workoutType = workout.workoutType || '';
 
     if (workoutType === 'STRENGTH' || workoutType === 'Strength Training') {
-      const exerciseName = exercisesArray[0]?.exerciseName || workout.exercise_name || '';
-      setExerciseName(exerciseName);
-      
-      // ✅ 還原所有訓練組
-      const trainingSetsData = exercisesArray.length > 0
-        ? exercisesArray.map((ex, idx) => ({
-            id: (idx + 1).toString(),
-            sets: ex.sets?.toString() || '',
-            reps: ex.reps?.toString() || '',
-            weight: ex.weight?.toString() || ''
-          }))
-        : [{ id: '1', sets: '', reps: '', weight: '' }];
-      
-      setTrainingSets(trainingSetsData.length > 0 
-        ? trainingSetsData 
-        : [{ id: '1', sets: '', reps: '', weight: '' }]
-      );
-      setWeightUnit(exercisesArray[0]?.weightUnit || workout.weight_unit || 'kg');
-      
+      // 對於力量訓練，需要從 notes 或其他地方獲取信息
+      // 暫時設置為空，因為 schema 中沒有這些字段
+      setExerciseName('');
+      setTrainingSets([{ id: '1', sets: '', reps: '', weight: '' }]);
+      setWeightUnit('kg');
       setCardioType('');
       setCardioDuration('');
     } else if (workoutType === 'CARDIO' || workoutType === 'Cardio') {
       setExerciseName('');
       setTrainingSets([{ id: '1', sets: '', reps: '', weight: '' }]);
       setWeightUnit('kg');
-      
-      // 如果運動名稱不在預設列表中，設置為 "Other" 並填充自定義欄位
-      const presetCardioTypes = ['Running', 'Cycling', 'Swimming', 'Rowing', 'Jumping Rope'];
-      const exerciseName = exercisesArray[0]?.exerciseName || workout.exercise_name || '';
-      
-      if (presetCardioTypes.includes(exerciseName)) {
-        setCardioType(exerciseName);
-        setCardioCustomType('');
-      } else {
-        setCardioType('Other');
-        setCardioCustomType(exerciseName);
-      }
-      
-      setCardioDuration((workout.duration || workout.durationMinutes || 0).toString());
+      setCardioType('');
+      setCardioCustomType('');
+      setCardioDuration((workout.durationMinutes || 0).toString());
     }
 
     setWorkoutNotes(workout.notes || '');
     setEditingWorkoutId(workout.id);
-    // 保存原始的 performedAt
-    const originalPerformedAt = workout.performed_at || workout.date;
-    setEditingWorkoutPerformedAt(originalPerformedAt ? new Date(originalPerformedAt).toISOString() : null);
+    // 保存原始的 date
+    const originalDate = workout.date;
+    setEditingWorkoutPerformedAt(originalDate ? new Date(originalDate).toISOString() : null);
     setShowWorkoutForm(true);
   };
 
@@ -399,11 +359,8 @@ export default function Dashboard() {
         // 先獲取所有訓練
         const response = await apiClient.get('/api/workouts');
         
-        if (!response.ok) {
-          throw new Error('Failed to fetch workouts');
-        }
-        
-        const allWorkouts = await response.json();
+        // Axios 會自動處理錯誤狀態碼，response.data 已經包含解析後的數據
+        const allWorkouts = response.data;
         console.log(`✅ Fetched ${allWorkouts.length} total workouts`);
         
         // 顯示所有訓練的時間戳
@@ -980,29 +937,17 @@ export default function Dashboard() {
             ) : (
               <div className="space-y-3">
                 {workouts.map((workout) => {
-                  // 解析 exercises JSON
-                  let allExercises: any[] = [];
-                  if (workout.exercises) {
-                    try {
-                      // 確保正確解析（如果是字符串則 JSON.parse）
-                      const ex = typeof workout.exercises === 'string'
-                        ? JSON.parse(workout.exercises)
-                        : workout.exercises;
-                      if (Array.isArray(ex)) {
-                        allExercises = ex;
-                      }
-                    } catch (e) {
-                      console.error('Error parsing exercises:', e);
-                    }
-                  }
-
-                  const workoutType = workout.workout_type || workout.workoutType || '';
-                  const exerciseName = allExercises[0]?.exerciseName || workout.exercise_name || workout.exerciseName;
-                  const sets = workout.sets;
-                  const reps = workout.reps;
-                  const weight = workout.weight;
-                  const weightUnit = workout.weight_unit || workout.weightUnit || 'kg';
-                  const duration = workout.duration || workout.durationMinutes;
+                  // Workout schema 中沒有 exercises 字段，只使用 workoutType 和 durationMinutes
+                  const workoutType = workout.workoutType || '';
+                  const duration = workout.durationMinutes || 0;
+                  
+                  // 定義變量以避免未定義錯誤
+                  const exerciseName = '';
+                  const allExercises: any[] = [];
+                  const sets = undefined;
+                  const reps = undefined;
+                  const weight = undefined;
+                  const weightUnit = 'kg';
 
                   // 檢查是否為力量訓練或 Cardio
                   const isStrength = workoutType === 'STRENGTH' || workoutType === 'Strength Training';

@@ -64,7 +64,7 @@ export function MealList({ meals }: { meals: Meal[] }) {
               </div>
             </div>
             <span className="text-xs text-muted-foreground whitespace-nowrap">
-              {format(new Date(meal.consumedAt || meal.date), "h:mm a")}
+              {format(new Date(meal.consumedAt), "h:mm a")}
             </span>
           </div>
         </div>

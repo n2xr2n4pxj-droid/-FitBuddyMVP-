@@ -17,7 +17,7 @@ export default function Landing() {
                 <span className="text-primary">FitBuddy</span>
               </h1>
               <p className="text-xl md:text-2xl text-muted-foreground max-w-3xl mx-auto">
-                Log meals, track workouts, and visualize your progress with smart nutrition insights powered by USDA data
+                Log meals, track workouts, and visualize your progress with smart nutrition insights powered by Open Food Facts
               </p>
             </div>
             
@@ -47,7 +47,7 @@ export default function Landing() {
             <FeatureCard
               icon={<Utensils className="w-8 h-8 text-primary" />}
               title="Meal Tracking"
-              description="Log your meals with automatic nutrition lookup from USDA database"
+              description="Log your meals with automatic nutrition lookup from food database"
             />
             <FeatureCard
               icon={<Activity className="w-8 h-8 text-primary" />}
@@ -78,7 +78,7 @@ export default function Landing() {
             <StepCard
               step="1"
               title="Log Your Meals"
-              description="Search for foods using the USDA database or enter nutrition manually. Track breakfast, lunch, dinner, and snacks."
+              description="Search for foods using the food database or enter nutrition manually. Track breakfast, lunch, dinner, and snacks."
             />
             <StepCard
               step="2"

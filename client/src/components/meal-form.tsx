@@ -56,9 +56,9 @@ export function MealForm() {
   });
 
   const { data: searchResults = [], isLoading: isSearching, error: searchError } = useQuery<FoodSearchResult[]>({
-    queryKey: ["/api/nutrition/search", searchQuery],
+    queryKey: ["/api/food/search", searchQuery],
     queryFn: async () => {
-      const response = await apiClient.get<FoodSearchResult[]>(`/api/nutrition/search/${encodeURIComponent(searchQuery)}`);
+      const response = await apiClient.get<FoodSearchResult[]>(`/api/food/search?query=${encodeURIComponent(searchQuery)}`);
       return response.data;
     },
     enabled: searchQuery.length >= 2,
@@ -204,7 +204,7 @@ export function MealForm() {
       // 保存選中的食物
       setSelectedFood(food);
       
-      // ✅ 使用 USDA 標準值庫（所有值都是每 100g）
+      // ✅ 使用標準值庫（所有值都是每 100g）
       const description = food.description.toLowerCase();
       const standardValues = getUSDAStandardValues(description);
       
@@ -212,7 +212,7 @@ export function MealForm() {
       let servingSize, nutrients;
       
       if (standardValues) {
-        // 使用 USDA 標準值（最準確，所有值都是每 100g）
+        // 使用標準值（最準確，所有值都是每 100g）
         servingSize = 100;
         nutrients = {
           calories: standardValues.calories,
@@ -220,7 +220,7 @@ export function MealForm() {
           carbs: standardValues.carbs,
           fat: standardValues.fat,
         };
-        console.log("✅ Using USDA standard values");
+        console.log("✅ Using standard values");
       } else {
         // 使用 API 值 + 自動校正
         servingSize = food.servingSize || 100;
@@ -314,7 +314,7 @@ export function MealForm() {
             </DialogTrigger>
             <DialogContent className="max-w-2xl max-h-[80vh]">
               <DialogHeader>
-                <DialogTitle>Search USDA Food Database</DialogTitle>
+                <DialogTitle>Search Food Database</DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
                 <Input
@@ -356,11 +356,6 @@ export function MealForm() {
                   <div className="text-center py-8">
                     <p className="text-destructive font-medium mb-2">搜索失敗</p>
                     <p className="text-sm text-muted-foreground">{searchError.message}</p>
-                    {searchError.message?.includes("API key") && (
-                      <p className="text-xs text-muted-foreground mt-2">
-                        請在 .env 文件中設置有效的 USDA_API_KEY
-                      </p>
-                    )}
                   </div>
                 )}
                 {!isSearching && !searchError && searchQuery.length >= 2 && searchResults.length === 0 && (

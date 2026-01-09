@@ -119,7 +119,7 @@ export default function TDEECalculator() {
     if (!results) return;
 
     try {
-      await apiRequest("/api/user/tdee", "PUT", {
+      await apiRequest("PUT", "/api/user/tdee", {
         gender,
         age: parseInt(age),
         heightCm: parseFloat(height),

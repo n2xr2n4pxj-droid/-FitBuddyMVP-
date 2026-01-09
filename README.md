@@ -1,12 +1,12 @@
 # FitBuddy - Your Personal Fitness Tracking Companion
 
-FitBuddy is a full-stack web application that helps users track their daily meals and workouts, visualize their progress with beautiful charts, and stay on top of their fitness journey with smart nutrition insights powered by USDA data.
+FitBuddy is a full-stack web application that helps users track their daily meals and workouts, visualize their progress with beautiful charts, and stay on top of their fitness journey with smart nutrition insights powered by Open Food Facts.
 
 ## Features
 
 ### 🍽️ Meal Tracking
 - Log meals with detailed nutrition information (calories, protein, carbs, fat)
-- Search USDA FoodData Central database for automatic nutrition lookup
+- Search Open Food Facts database for automatic nutrition lookup
 - Categorize meals by type (breakfast, lunch, dinner, snack)
 - View today's meal log with complete nutrition breakdown
 
@@ -51,7 +51,7 @@ FitBuddy is a full-stack web application that helps users track their daily meal
 - **Zod** for request validation
 
 ### External APIs
-- **USDA FoodData Central API** for nutrition data
+- **Open Food Facts API** for nutrition data
 
 ## Project Structure
 
@@ -100,7 +100,6 @@ FitBuddy is a full-stack web application that helps users track their daily meal
 ### Prerequisites
 - Node.js 20+ installed
 - PostgreSQL database (automatically provisioned on Replit)
-- USDA API key (free from https://fdc.nal.usda.gov/api-key-signup/)
 
 ### Environment Variables
 Create a `.env` file or use Replit Secrets with the following variables:
@@ -108,7 +107,6 @@ Create a `.env` file or use Replit Secrets with the following variables:
 ```bash
 DATABASE_URL=<your-postgres-connection-string>
 SESSION_SECRET=<random-secret-for-sessions>
-USDA_API_KEY=<your-usda-api-key>
 REPL_ID=<your-repl-id>
 ```
 
@@ -142,7 +140,7 @@ The app will be available at http://localhost:5000 (or your Replit URL).
 
 ### Meal Logging Flow
 1. User opens "Add Meal" form on dashboard
-2. Can search USDA database by clicking search icon
+2. Can search food database by clicking search icon
 3. Select food from results to auto-fill nutrition data
 4. Or manually enter food name and nutrition values
 5. Submit form → API validates with Zod → Saves to database
@@ -168,15 +166,11 @@ The app will be available at http://localhost:5000 (or your Replit URL).
   - Chart.js visualizes trends over time
   - Dual-axis chart: calories on left, minutes on right
 
-### USDA API Integration
-- Backend proxies requests to USDA FoodData Central
-- Endpoint: `/api/nutrition/search/:query`
-- Transforms USDA response to simplified format
-- Extracts key nutrients by ID:
-  - 1008: Energy (calories)
-  - 1003: Protein
-  - 1005: Carbohydrates
-  - 1004: Total fat
+### Food Search API Integration
+- Backend proxies requests to Open Food Facts
+- Endpoint: `/api/food/search?query=...`
+- Transforms API response to simplified format
+- Returns standardized nutrition data per 100g
 
 ## Database Schema
 
@@ -230,8 +224,8 @@ The app will be available at http://localhost:5000 (or your Replit URL).
 - `GET /api/summary/daily/:date?` - Get daily summary (protected)
 - `GET /api/summary/weekly` - Get 7-day summary (protected)
 
-### Nutrition
-- `GET /api/nutrition/search/:query` - Search USDA database (protected)
+### Food Search
+- `GET /api/food/search?query=...` - Search Open Food Facts database (protected)
 
 ## Design System
 
@@ -301,7 +295,7 @@ MIT License - feel free to use this project for learning and personal use.
 ## Support
 
 For questions or issues, please check:
-- USDA API documentation: https://fdc.nal.usda.gov/api-guide/
+- Open Food Facts API documentation: https://world.openfoodfacts.org/data
 - Replit Auth docs: https://docs.replit.com/
 - Drizzle ORM docs: https://orm.drizzle.team/
 

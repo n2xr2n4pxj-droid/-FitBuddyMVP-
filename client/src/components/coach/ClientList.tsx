@@ -66,8 +66,9 @@ export default function ClientList({ clients, onClientSelect, onRefresh }: Clien
 
       const data = response.data;
 
-      if (!response.ok) {
-        throw new Error(data?.error || 'Failed to add client');
+      // Axios 會自動處理錯誤狀態碼，如果到這裡說明請求成功
+      if (data?.error) {
+        throw new Error(data.error || 'Failed to add client');
       }
 
       toast({

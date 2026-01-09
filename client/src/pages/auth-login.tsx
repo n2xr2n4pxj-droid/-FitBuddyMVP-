@@ -44,7 +44,7 @@ export default function AuthLoginPage() {
     }
   };
 
-  const errorMessage = error instanceof Error ? error.message : error || "登入失敗，請重試";
+  const errorMessage = typeof error === 'string' ? error : (error && typeof error === 'object' && 'message' in error ? String((error as any).message) : "登入失敗，請重試");
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center py-12 px-4">
