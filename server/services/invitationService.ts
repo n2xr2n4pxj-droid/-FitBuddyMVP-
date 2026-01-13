@@ -15,6 +15,7 @@ import emailService from './emailService';
 import { eq, and, or, desc } from 'drizzle-orm';
 import crypto from 'crypto';
 import { hashPassword } from '../replitAuth';
+import { config } from '../config/env';
 
 const INVITATION_CODE_LENGTH = 32;
 const INVITATION_EXPIRY_DAYS = 30;
@@ -140,7 +141,7 @@ export async function sendInvitation(
     const coachName = `${sender.firstName || ''} ${sender.lastName || ''}`.trim() || sender.email;
 
     // ✅ 發送邀請郵件（使用新的 emailService）
-    const invitationLink = `${process.env.APP_URL || process.env.CLIENT_URL || 'http://localhost:5173'}/auth/accept-invitation/${invitationToken}`;
+    const invitationLink = `${config.app.appUrl || config.app.clientUrl || 'http://localhost:5173'}/auth/accept-invitation/${invitationToken}`;
     
     const emailResult = await emailService.sendEmail({
       to: clientEmail,
@@ -197,7 +198,7 @@ function generateInvitationEmailHTML(
   clientName?: string
 ): string {
   const coachName = `${coach.firstName || ''} ${coach.lastName || ''}`.trim() || coach.email;
-  const supportEmail = process.env.SENDGRID_SUPPORT_EMAIL || process.env.SENDGRID_REPLY_TO || 'support@fitbuddy.hk';
+  const supportEmail = config.email.sendgridSupportEmail || config.email.sendgridReplyTo || 'support@fitbuddy.hk';
   
   return `
 <!DOCTYPE html>

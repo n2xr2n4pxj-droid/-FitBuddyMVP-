@@ -1,14 +1,16 @@
-import dotenv from "dotenv";
-import path from "path";
-import { fileURLToPath } from "url";
+// ==========================================
+// 環境變量加載和驗證（必須在最開始執行）
+// ==========================================
+import { config, validateConfig, getConfigSummary } from "./config/env";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-dotenv.config({ path: path.resolve(__dirname, ".env.local") });
-dotenv.config({ path: path.resolve(__dirname, "..", ".env") }); // fallback to root .env
-
-console.log('[DEBUG] from index.ts SENDGRID_API_KEY:', process.env.SENDGRID_API_KEY ? 'SET' : 'MISSING');
+// 驗證環境變量配置
+try {
+  validateConfig();
+  console.log('📋 Configuration Summary:', JSON.stringify(getConfigSummary(), null, 2));
+} catch (error) {
+  console.error('❌ Failed to validate environment variables:', error);
+  process.exit(1);
+}
 
 import express, { type Request, Response, NextFunction } from "express";
 import { createRequire } from "module";
@@ -23,8 +25,8 @@ const cors = require("cors");
 const app = express();
 
 app.use(cors({
-  origin: 'http://localhost:5173',
-  credentials: true,
+  origin: config.cors.origin,
+  credentials: config.cors.credentials,
 }));
 
 app.use(express.json({
@@ -103,8 +105,10 @@ app.use((req, res, next) => {
   // Other ports are firewalled. Default to 3000 if not specified.
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
-  const port = parseInt(process.env.PORT || '3000', 10);
+  const port = config.app.port;
   server.listen(port, "0.0.0.0", () => {
-    log(`serving on port ${port}`);
+    log(`🚀 FitBuddy server started on port ${port}`);
+    log(`📝 Environment: ${config.app.env}`);
+    log(`🌐 Client URL: ${config.app.clientUrl}`);
   });
 })();

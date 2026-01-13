@@ -11,10 +11,11 @@ import { emailLogs } from '../db/schema';
 import { eq, desc } from 'drizzle-orm';
 import { log } from '../vite';
 import crypto from 'crypto';
+import { config } from '../config/env';
 
-// 初始化 SendGrid
-if (process.env.SENDGRID_API_KEY) {
-  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+// 初始化 SendGrid（從環境變量管理系統讀取）
+if (config.email.sendgridApiKey) {
+  sgMail.setApiKey(config.email.sendgridApiKey);
 } else {
   log('⚠️  [Email Service] SENDGRID_API_KEY 未設置，郵件功能將無法使用', 'email');
 }
@@ -49,8 +50,8 @@ export const emailService = {
    * 初始化郵件服務
    */
   async initialize() {
-    if (process.env.SENDGRID_API_KEY) {
-      sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+    if (config.email.sendgridApiKey) {
+      sgMail.setApiKey(config.email.sendgridApiKey);
       log('✅ [Email Service] SendGrid 已初始化', 'email');
     } else {
       log('⚠️  [Email Service] SENDGRID_API_KEY 未設置，郵件功能將無法使用', 'email');
@@ -70,12 +71,12 @@ export const emailService = {
 
     try {
       // 驗證 SendGrid 配置
-      if (!process.env.SENDGRID_API_KEY) {
+      if (!config.email.sendgridApiKey) {
         throw new Error('SendGrid API key not configured');
       }
 
-      const fromEmail = process.env.SENDGRID_FROM_EMAIL || 'noreply@fitbuddy.hk';
-      const replyTo = options.replyTo || process.env.SENDGRID_REPLY_TO || process.env.SENDGRID_SUPPORT_EMAIL || fromEmail;
+      const fromEmail = config.email.sendgridFromEmail;
+      const replyTo = options.replyTo || config.email.sendgridReplyTo || config.email.sendgridSupportEmail || fromEmail;
       const emailType = options.type || 'general';
 
       const msg: any = {
@@ -320,7 +321,7 @@ export const emailService = {
     error?: string;
     errorCode?: string;
   }> {
-    const appUrl = process.env.APP_URL || process.env.CLIENT_URL || 'http://localhost:5173';
+    const appUrl = config.app.appUrl || config.app.clientUrl;
     const verificationLink = `${appUrl}/verify-email/${token}`; // ✅ 使用 /verify-email/{token} 格式
     
     const html = `
@@ -416,7 +417,7 @@ export const emailService = {
     
     <div class="footer">
       <p>此郵件由 FitBuddy 自動發送，請勿回覆。</p>
-      <p>如有問題，請聯繫：${process.env.SENDGRID_SUPPORT_EMAIL || 'support@fitbuddy.hk'}</p>
+      <p>如有問題，請聯繫：${config.email.sendgridSupportEmail}</p>
     </div>
   </div>
 </body>
@@ -455,11 +456,11 @@ export const emailService = {
     coachProfileUrl?: string
   ): Promise<{ success: boolean; logId?: string; error?: string }> {
     try {
-      const clientUrl = process.env.CLIENT_URL || process.env.APP_URL || 'http://localhost:5173';
+      const clientUrl = config.app.clientUrl || config.app.appUrl;
       const acceptInvitationUrl = `${clientUrl}/auth/accept-invitation/${invitationToken}`;
-      const fromEmail = process.env.SENDGRID_FROM_EMAIL || 'noreply@fitbuddy.hk';
-      const supportEmail = process.env.SENDGRID_SUPPORT_EMAIL || process.env.SENDGRID_REPLY_TO || 'support@fitbuddy.hk';
-      const templateId = process.env.SENDGRID_TEMPLATE_ID;
+      const fromEmail = config.email.sendgridFromEmail;
+      const supportEmail = config.email.sendgridSupportEmail || config.email.sendgridReplyTo;
+      const templateId = config.email.sendgridTemplateId || undefined;
 
       const subject = `${coachName} 邀請你加入 FitBuddy 🏋️`;
 
@@ -516,7 +517,7 @@ export const emailService = {
     acceptInvitationUrl: string,
     coachProfileUrl?: string
   ): string {
-    const supportEmail = process.env.SENDGRID_SUPPORT_EMAIL || process.env.SENDGRID_REPLY_TO || 'support@fitbuddy.hk';
+    const supportEmail = config.email.sendgridSupportEmail || config.email.sendgridReplyTo || 'support@fitbuddy.hk';
     return `
 <!DOCTYPE html>
 <html lang="zh-TW">

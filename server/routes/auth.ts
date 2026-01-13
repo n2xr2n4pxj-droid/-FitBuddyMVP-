@@ -3,7 +3,7 @@ import { db, pool } from '../db';
 import { users } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import { hashPassword, verifyPassword, isAuthenticated, verifyJWT } from '../replitAuth';
-import jwt from 'jsonwebtoken';
+import jwt, { type SignOptions } from 'jsonwebtoken';
 import crypto from 'crypto';
 import { 
   getUserById, 
@@ -12,24 +12,42 @@ import {
   createUser 
 } from '../db/queries';
 import emailService from '../services/emailService';
+import { config } from '../config/env';
 
 const router = Router();
 
 // ==========================================
-// JWT 常量
+// JWT 配置（從環境變量管理系統讀取）
 // ==========================================
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-jwt-secret-key';
-const REFRESH_TOKEN_SECRET = process.env.REFRESH_TOKEN_SECRET || 'dev-refresh-token-secret-key';
-const ACCESS_TOKEN_EXPIRATION = '7d';
-const REFRESH_TOKEN_EXPIRATION = '30d';
+// 生產環境必須設置，開發環境可以使用默認值
+const getJWTSecret = (): string => {
+  const secret = config.jwt.secret || (config.app.env === 'production' ? '' : 'dev-jwt-secret-key');
+  if (!secret && config.app.env === 'production') {
+    throw new Error('JWT_SECRET must be set in production environment');
+  }
+  return secret;
+};
+
+const getRefreshTokenSecret = (): string => {
+  const secret = config.jwt.refreshSecret || (config.app.env === 'production' ? '' : 'dev-refresh-token-secret-key');
+  if (!secret && config.app.env === 'production') {
+    throw new Error('REFRESH_TOKEN_SECRET must be set in production environment');
+  }
+  return secret;
+};
+
+const JWT_SECRET = getJWTSecret();
+const REFRESH_TOKEN_SECRET = getRefreshTokenSecret();
+const ACCESS_TOKEN_EXPIRATION = config.jwt.accessTokenExpiration;
+const REFRESH_TOKEN_EXPIRATION = config.jwt.refreshTokenExpiration;
 
 // ==========================================
-// Google OAuth 配置
+// Google OAuth 配置（從環境變量管理系統讀取）
 // ==========================================
 const googleConfig = {
-  clientId: process.env.GOOGLE_CLIENT_ID,
-  clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-  redirectUri: process.env.GOOGLE_CALLBACK_URL,
+  clientId: config.google.clientId,
+  clientSecret: config.google.clientSecret,
+  redirectUri: config.google.callbackUrl,
 };
 
 // ==========================================
@@ -42,15 +60,17 @@ interface TokenPayload {
 }
 
 const generateAccessToken = (payload: TokenPayload) => {
+  const expiresIn: string | number = ACCESS_TOKEN_EXPIRATION || '7d';
   return jwt.sign(payload, JWT_SECRET, {
-    expiresIn: ACCESS_TOKEN_EXPIRATION,
-  });
+    expiresIn,
+  } as SignOptions);
 };
 
 const generateRefreshToken = (userId: string) => {
+  const expiresIn: string | number = REFRESH_TOKEN_EXPIRATION || '30d';
   return jwt.sign({ sub: userId }, REFRESH_TOKEN_SECRET, {
-    expiresIn: REFRESH_TOKEN_EXPIRATION,
-  });
+    expiresIn,
+  } as SignOptions);
 };
 
 // ==========================================
@@ -378,7 +398,7 @@ router.get('/auth/me', async (req: any, res: any) => {
 
     let decoded: any;
     try {
-      decoded = jwt.verify(token, process.env.JWT_SECRET || 'dev-jwt-secret-key');
+      decoded = jwt.verify(token, JWT_SECRET);
       console.log('[GET /auth/me] ✅ Token verified');
     } catch (verifyErr) {
       console.error('[GET /auth/me] ❌ Token verification failed:', verifyErr);
@@ -547,13 +567,13 @@ router.get('/auth/verify-email/:token', async (req: any, res: any) => {
     // ✅ 驗證 token 是否過期
     const now = Date.now();
     if (user.emailVerificationExpires && user.emailVerificationExpires < now) {
-      const clientUrl = process.env.CLIENT_URL || process.env.APP_URL || 'http://localhost:5173';
+      const clientUrl = config.app.clientUrl || config.app.appUrl || 'http://localhost:5173';
       return res.redirect(`${clientUrl}/auth/login?error=token_expired`);
     }
 
     // 檢查是否已經驗證過
     if (user.emailVerified) {
-      const clientUrl = process.env.CLIENT_URL || process.env.APP_URL || 'http://localhost:5173';
+      const clientUrl = config.app.clientUrl || config.app.appUrl || 'http://localhost:5173';
       return res.redirect(`${clientUrl}/auth/login?verified=true`);
     }
 
@@ -983,7 +1003,7 @@ router.post('/auth/google/callback', async (req: any, res: any) => {
     // ✅ Google OAuth API 要求使用 application/x-www-form-urlencoded 格式
     // ✅ redirect_uri 必須與前端 @react-oauth/google 使用的完全一致
     // 默認情況下，@react-oauth/google 使用當前頁面的 origin（如 http://localhost:5173）
-    const redirectUri = googleConfig.redirectUri || `${process.env.CLIENT_URL || 'http://localhost:5173'}`;
+    const redirectUri = googleConfig.redirectUri || config.app.clientUrl || config.app.appUrl || 'http://localhost:5173';
     
     const params = new URLSearchParams();
     params.append('code', code);

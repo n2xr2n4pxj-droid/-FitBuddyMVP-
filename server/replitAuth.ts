@@ -3,11 +3,12 @@ import session from "express-session";
 import passport from "passport";
 import { Strategy as LocalStrategy } from "passport-local";
 import crypto from "crypto";
-import jwt from "jsonwebtoken";
+import jwt, { type SignOptions } from "jsonwebtoken";
 
 import { db, pool } from "./db";
 import { users, type User } from "./db/schema";
 import { eq } from "drizzle-orm";
+import { config } from "./config/env";
 
 // --- Local email/password auth for development ---
 
@@ -55,13 +56,21 @@ export function verifyPassword(password: string, stored?: string | null): boolea
 
 export function getSession() {
   const sessionTtl = 7 * 24 * 60 * 60 * 1000; // 1 week
+  
+  // 從環境變量管理系統讀取，如果未設置則使用開發環境默認值（僅開發環境）
+  const sessionSecret = config.session.secret || (config.app.env === 'production' ? '' : 'dev-session-secret');
+  
+  if (!sessionSecret && config.app.env === 'production') {
+    throw new Error('SESSION_SECRET must be set in production environment');
+  }
+  
   return session({
-    secret: process.env.SESSION_SECRET || "dev-session-secret",
+    secret: sessionSecret,
     resave: false,
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
-      secure: false, // 本機開發用，HTTP 也能帶 cookie
+      secure: config.app.env === 'production', // 生產環境使用 HTTPS
       sameSite: "lax",
       maxAge: sessionTtl,
     },
@@ -411,8 +420,17 @@ export async function setupAuth(app: Express) {
   */
 }
 
-// JWT Secret - 從環境變量獲取，默認使用開發密鑰
-const JWT_SECRET = process.env.JWT_SECRET || "dev-jwt-secret-change-in-production";
+// JWT Secret - 從環境變量管理系統讀取
+// 生產環境必須設置，開發環境可以使用默認值
+const getJWTSecret = (): string => {
+  const secret = config.jwt.secret || (config.app.env === 'production' ? '' : 'dev-jwt-secret-change-in-production');
+  if (!secret && config.app.env === 'production') {
+    throw new Error('JWT_SECRET must be set in production environment');
+  }
+  return secret;
+};
+
+const JWT_SECRET = getJWTSecret();
 
 // 🔧 生成 JWT Token
 export function generateJWT(user: { id: string; email: string; role?: string }): string {
@@ -422,9 +440,11 @@ export function generateJWT(user: { id: string; email: string; role?: string }):
     role: user.role || 'client',
   };
   
+  const expiresIn = config.jwt.accessTokenExpiration || '7d';
+  // 確保 expiresIn 是字符串類型
   return jwt.sign(payload, JWT_SECRET, {
-    expiresIn: '7d', // 7 天過期
-  });
+    expiresIn: expiresIn as any, // 從配置讀取（類型兼容性）
+  } as SignOptions);
 }
 
 // 🔧 驗證 JWT Token 中間件（支持 Bearer token 和 Session 混合）

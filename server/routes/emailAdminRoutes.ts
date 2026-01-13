@@ -8,6 +8,7 @@ import express, { Request, Response, RequestHandler } from "express";
 import emailService from "../services/emailService";
 import { authMiddleware } from "../middleware/auth";
 import { pool } from "../db";
+import { config } from "../config/env";
 
 const router = express.Router();
 
@@ -57,7 +58,7 @@ router.get("/health", (_req: Request, res: Response) => {
   res.json({
     status: "ok",
     timestamp: new Date().toISOString(),
-    sendgridConfigured: !!process.env.SENDGRID_API_KEY,
+    sendgridConfigured: !!config.email.sendgridApiKey,
   });
 });
 
@@ -70,12 +71,12 @@ router.get("/config", authMiddleware, requireAdmin, async (_req: Request, res: R
     res.json({
       success: true,
       data: {
-        fromEmail: process.env.SENDGRID_FROM_EMAIL || 'noreply@fitbuddy.hk',
-        replyTo: process.env.SENDGRID_REPLY_TO || process.env.SENDGRID_SUPPORT_EMAIL || 'support@fitbuddy.hk',
-        supportEmail: process.env.SENDGRID_SUPPORT_EMAIL || process.env.SENDGRID_REPLY_TO || 'support@fitbuddy.hk',
-        appUrl: process.env.APP_URL || process.env.CLIENT_URL || 'http://localhost:5173',
-        sendgridConfigured: !!process.env.SENDGRID_API_KEY,
-        templateId: process.env.SENDGRID_TEMPLATE_ID || null,
+        fromEmail: config.email.sendgridFromEmail || 'noreply@fitbuddy.hk',
+        replyTo: config.email.sendgridReplyTo || config.email.sendgridSupportEmail || 'support@fitbuddy.hk',
+        supportEmail: config.email.sendgridSupportEmail || config.email.sendgridReplyTo || 'support@fitbuddy.hk',
+        appUrl: config.app.appUrl || config.app.clientUrl || 'http://localhost:5173',
+        sendgridConfigured: !!config.email.sendgridApiKey,
+        templateId: config.email.sendgridTemplateId || null,
       }
     });
   } catch (error) {

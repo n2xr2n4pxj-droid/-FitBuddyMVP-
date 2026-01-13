@@ -1,28 +1,17 @@
-import dotenv from "dotenv";
-import path from "path";
-import { fileURLToPath } from "url";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import * as schema from "./db/schema";
+import { config } from "./config/env";
 
-// 獲取當前文件的絕對路徑
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Load env vars with absolute paths
-dotenv.config({ path: path.resolve(__dirname, ".env.local") });
-dotenv.config({ path: path.resolve(__dirname, "..", ".env") });
-dotenv.config();
-
-if (!process.env.DATABASE_URL) {
+// 驗證數據庫 URL
+if (!config.database.url) {
   throw new Error(
     "DATABASE_URL must be set. Did you forget to provision a database?",
   );
 }
 
-
 export const pool = new Pool({ 
-  connectionString: process.env.DATABASE_URL 
+  connectionString: config.database.url 
 });
 
 export const db = drizzle({ client: pool, schema });

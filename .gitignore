@@ -7,6 +7,11 @@ build/
 .env
 .env.local
 .env.*.local
+*.secret
+
+# 明確忽略各層級的 .env.local（防止意外提交）
+client/.env.local
+server/.env.local
 
 # Logs
 *.log
