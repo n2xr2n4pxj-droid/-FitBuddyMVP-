@@ -14,7 +14,8 @@ import Dashboard from "@/pages/dashboard";
 import TDEECalculator from "@/components/tdee-calculator";
 import AuthPage from "@/pages/auth";
 import AuthLoginPage from "@/pages/auth-login";
-import AuthRegisterPage from "@/pages/auth-register";
+// import AuthRegisterPage from "@/pages/auth-register"; // ✅ 已替換為 RegisterFlow（新版本 7 步流程）
+import RegisterFlow from "@/pages/auth/RegisterFlow/RegisterFlow";
 import Profile from "@/pages/profile";
 import History from "@/pages/history";
 import Trends from "@/pages/trends";
@@ -127,9 +128,11 @@ function Router() {
         <Route path="/auth/verify-email/:token" component={VerifyEmail} />
         <Route path="/verify-email/:token" component={VerifyEmail} />
         <Route path="/verify-email-prompt" component={VerifyEmailPrompt} />
-        <Route path="/auth/register" component={AuthRegisterPage} />
+        {/* ✅ 註冊流程（統一使用 RegisterFlow - 新版本 7 步流程） */}
+        <Route path="/register" component={RegisterFlow} />
+        <Route path="/register-flow" component={RegisterFlow} />
+        <Route path="/auth/register" component={RegisterFlow} />
         <Route path="/auth/login" component={AuthLoginPage} />
-        <Route path="/register" component={AuthRegisterPage} />
         <Route path="/login" component={AuthLoginPage} />
         <Route path="/resend-verification" component={ResendVerification} />
         <Route path="/auth" component={AuthPage} />
@@ -229,6 +232,10 @@ function Router() {
         
         {/* 邀請接受頁面 */}
         <Route path="/auth/accept-invitation/:code" component={AcceptInvitation} />
+        
+        {/* ✅ 註冊流程（已認證用戶可以繼續完成註冊） */}
+        <Route path="/register" component={RegisterFlow} />
+        <Route path="/register-flow" component={RegisterFlow} />
         
         {/* 角色選擇頁面（通常不會再訪問，但保留以防萬一） */}
         <Route path="/role-selection" component={RoleSelection} />

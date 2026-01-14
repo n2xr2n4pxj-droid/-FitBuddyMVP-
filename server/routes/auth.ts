@@ -1220,4 +1220,178 @@ router.post('/auth/google/callback', async (req: any, res: any) => {
   }
 });
 
+// ==========================================
+// GET /auth/registration-status - 檢查註冊完成狀態
+// ==========================================
+router.get('/auth/registration-status', verifyJWT, async (req: any, res: any) => {
+  try {
+    // ✅ 使用與 verifyJWT 相同的方式獲取用戶ID
+    const userId = req.user?.id || req.user?.claims?.sub || req.user?.sub;
+    
+    if (!userId) {
+      console.log('[GET /auth/registration-status] ❌ User ID not found in req.user:', req.user);
+      return res.status(401).json({
+        success: false,
+        error: 'User ID not found',
+      });
+    }
+
+    console.log('[GET /auth/registration-status] Checking registration status for user:', userId);
+
+    // ✅ 使用與 verifyJWT 相同的 SQL 查詢方式（直接查詢所有字段）
+    // ✅ 使用 req.user.id（verifyJWT 已經驗證過用戶存在並設置了 req.user）
+    // ✅ 修復：處理可能不存在的列名（goal_type 等）
+    let result;
+    try {
+      result = await pool.query(
+        `SELECT id, email, first_name, last_name, role, age, gender, height_cm, current_weight_kg, activity_level, goal_type, tdee
+         FROM users 
+         WHERE id = $1 
+         LIMIT 1`,
+        [userId]
+      );
+    } catch (queryError: any) {
+      // 如果列不存在，只查詢基本字段
+      if (queryError.code === '42703') {
+        console.log('[GET /auth/registration-status] ⚠️ Some columns not found, using basic fields only');
+        try {
+          result = await pool.query(
+            `SELECT id, email, first_name, last_name, role, age, gender, height_cm, current_weight_kg, activity_level, tdee
+             FROM users 
+             WHERE id = $1 
+             LIMIT 1`,
+            [userId]
+          );
+        } catch (altError: any) {
+          // 如果還是失敗，只查詢最基礎的字段
+          console.log('[GET /auth/registration-status] ⚠️ TDEE columns not found, using minimal fields only');
+          result = await pool.query(
+            `SELECT id, email, first_name, last_name, role
+             FROM users 
+             WHERE id = $1 
+             LIMIT 1`,
+            [userId]
+          );
+        }
+      } else {
+        throw queryError;
+      }
+    }
+
+    // ✅ 如果用戶不存在，返回 incomplete 而不是 404
+    if (result.rows.length === 0) {
+      console.log('[GET /auth/registration-status] ⚠️ User not found in database, returning incomplete status');
+      return res.json({
+        success: true,
+        data: {
+          registrationStatus: 'incomplete',
+          nextStep: 1,
+          completedSteps: {
+            step1: false,
+            step2: false,
+            step3: false,
+            step4: false,
+            step5: false,
+            step6: false,
+            step7: false,
+          },
+        },
+      });
+    }
+
+    const userData = result.rows[0];
+    const userRole = userData.role;
+    const age = userData.age;
+    const gender = userData.gender;
+    // ✅ 修復：支持多種列名格式，處理可能不存在的字段
+    const height = userData.height_cm ? parseFloat(userData.height_cm) : null;
+    const weight = userData.current_weight_kg ? parseFloat(userData.current_weight_kg) : null;
+    const activityLevel = userData.activity_level || null;
+    const goalType = userData.goal_type || null; // ✅ 處理可能不存在的字段
+    const tdee = userData.tdee ? parseFloat(userData.tdee) : null;
+
+    // ✅ 新流程：角色選擇移到步驟 7（最後一步）
+    // 步驟 1: 用戶名（OAuth 用戶已有，可視為完成）
+    // 步驟 2: Email/Password（OAuth 用戶已跳過，視為完成）
+    // 步驟 3: TDEE 基本信息（年齡、性別、身高、體重）
+    // 步驟 4: TDEE 完整設置（活動水平、目標）
+    // 步驟 5: Newsletter（可選）
+    // 步驟 6: Sync Contacts（可選）
+    // 步驟 7: 角色選擇（必要，最後一步）
+
+    // 檢查 TDEE 基本信息（步驟 3）
+    const hasTDEEBasicInfo = !!(
+      age !== null && 
+      age !== undefined &&
+      gender !== null && 
+      gender !== undefined &&
+      height !== null && 
+      height !== undefined &&
+      weight !== null && 
+      weight !== undefined
+    );
+
+    // 檢查 TDEE 完整設置（步驟 4）
+    const hasTDEEComplete = !!(
+      hasTDEEBasicInfo && 
+      activityLevel && 
+      goalType && 
+      tdee
+    );
+
+    // 檢查角色選擇（步驟 7）
+    const hasRole = userRole && userRole !== 'USER'; // 'USER' 是默認值，不算已選擇
+
+    let registrationStatus: 'incomplete' | 'partial' | 'complete';
+    let nextStep: number | null = null;
+
+    if (!hasTDEEBasicInfo) {
+      registrationStatus = 'partial';
+      nextStep = 3;
+    } else if (!hasTDEEComplete) {
+      registrationStatus = 'partial';
+      nextStep = 4;
+    } else if (!hasRole) {
+      registrationStatus = 'partial';
+      nextStep = 7; // 角色選擇是步驟 7
+    } else {
+      registrationStatus = 'complete';
+      nextStep = null;
+    }
+
+    console.log('[GET /auth/registration-status] ✅ Registration status check:', {
+      userId,
+      hasTDEEBasicInfo,
+      hasTDEEComplete,
+      hasRole,
+      registrationStatus,
+      nextStep,
+    });
+
+    res.json({
+      success: true,
+      data: {
+        registrationStatus,
+        nextStep,
+        completedSteps: {
+          step1: true, // OAuth 用戶跳過
+          step2: true, // OAuth 用戶跳過
+          step3: hasTDEEBasicInfo,
+          step4: hasTDEEComplete,
+          step5: true, // 可選
+          step6: true, // 可選
+          step7: hasRole, // 角色選擇
+        },
+      },
+    });
+  } catch (error: any) {
+    console.error('[GET /auth/registration-status] ❌ Error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to check registration status',
+      message: error.message,
+    });
+  }
+});
+
 export default router;

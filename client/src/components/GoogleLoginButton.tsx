@@ -114,22 +114,89 @@ export default function GoogleLoginButton() {
         // 確保認證狀態已更新
         // setUser 會自動設置 isAuthenticated = true
 
-        // ✅ 檢查用戶是否有角色，如果沒有則重定向到角色選擇頁面
-        // 如果用戶有角色，則重定向到對應的 dashboard
-        setTimeout(() => {
-          setLoading(false);
-          const userRole = data.user?.role;
-          console.log('[GoogleLoginButton] 🔀 Redirecting, user role:', userRole);
-          if (!userRole) {
-            // 沒有角色，重定向到角色選擇頁面
-            console.log('[GoogleLoginButton] → Redirecting to /role-selection');
-            setLocation('/role-selection');
-          } else {
-            // 有角色，重定向到主頁（App.tsx 會根據角色路由到對應的 dashboard）
-            console.log('[GoogleLoginButton] → Redirecting to /');
-            setLocation('/');
+        // ✅ OAuth 註冊流程修復：使用新的註冊狀態 API 檢查完整註冊流程
+        try {
+          // ✅ 確保使用正確的 token 格式
+          const tokenForAPI = accessToken || tokenManager.getAccessToken();
+          if (!tokenForAPI) {
+            console.error('[GoogleLoginButton] ❌ No access token available for API call');
+            throw new Error('No access token available');
           }
-        }, 500);
+
+          // ✅ 添加超時和錯誤處理
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 秒超時
+
+          // 調用註冊狀態檢查 API
+          const registrationStatusResponse = await fetch('/api/auth/registration-status', {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${tokenForAPI}`,
+            },
+            credentials: 'include',
+            signal: controller.signal,
+          });
+
+          clearTimeout(timeoutId);
+
+          let registrationStatus = 'incomplete';
+          let nextStep: number | null = null;
+
+          if (registrationStatusResponse.ok) {
+            const statusData = await registrationStatusResponse.json();
+            registrationStatus = statusData.data?.registrationStatus || 'incomplete';
+            nextStep = statusData.data?.nextStep || null;
+            
+            console.log('[GoogleLoginButton] ✅ Registration status check:', {
+              registrationStatus,
+              nextStep,
+              completedSteps: statusData.data?.completedSteps,
+            });
+          } else {
+            const errorData = await registrationStatusResponse.json().catch(() => ({}));
+            console.error('[GoogleLoginButton] ⚠️ Registration status API failed:', {
+              status: registrationStatusResponse.status,
+              error: errorData.error || errorData.message,
+            });
+            // ✅ API 失敗時，假設未完成並重定向到步驟 3（TDEE 設置開始）
+            registrationStatus = 'partial';
+            nextStep = 3;
+          }
+
+          // ✅ 使用 window.location.replace 防止返回按鈕混亂，並添加延遲防止競態條件
+          setTimeout(() => {
+            setLoading(false);
+            
+            console.log('[GoogleLoginButton] 🔀 Redirecting based on registration status:', {
+              registrationStatus,
+              nextStep,
+            });
+            
+            if (registrationStatus === 'complete') {
+              // 已完成所有註冊步驟，重定向到 Dashboard
+              console.log('[GoogleLoginButton] → Registration complete, redirecting to /dashboard');
+              window.location.replace('/dashboard');
+            } else if (registrationStatus === 'partial' && nextStep) {
+              // 部分完成，重定向到相應的註冊步驟
+              console.log(`[GoogleLoginButton] → Registration partial, redirecting to /register?step=${nextStep}`);
+              window.location.replace(`/register?step=${nextStep}`);
+            } else {
+              // 未完成，重定向到步驟 1（開始註冊流程）
+              console.log('[GoogleLoginButton] → Registration incomplete, redirecting to /register?step=1');
+              window.location.replace('/register?step=1');
+            }
+          }, 300); // ✅ 減少延遲時間，從 500ms 改為 300ms
+        } catch (statusError: any) {
+          // ✅ 如果註冊狀態檢查失敗，假設未完成並重定向到註冊流程步驟 3
+          console.error('[GoogleLoginButton] ❌ Registration status check error:', statusError);
+          setTimeout(() => {
+            setLoading(false);
+            // 錯誤時，假設需要完成 TDEE 設置，重定向到步驟 3
+            console.log('[GoogleLoginButton] → Error occurred, redirecting to /register?step=3 (assume TDEE incomplete)');
+            window.location.replace('/register?step=3');
+          }, 300); // ✅ 減少延遲時間
+        }
       } catch (err: any) {
         console.error('[GoogleLoginButton] Error:', err);
         setError(err.message || 'Google 登錄失敗，請稍後再試');

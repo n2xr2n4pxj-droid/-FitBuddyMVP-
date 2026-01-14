@@ -295,19 +295,53 @@ export const useAuthStore = create<AuthState>()(
       },
 
       // ========== 登出 ==========
-      logout: () => {
-        tokenManager.clear();
-        set({
-          user: null,
-          token: null,
-          refreshToken: null,
-          isAuthenticated: false,
-          error: null,
-          needsVerification: false, // ✅ 清除郵箱驗證標記
-          lastRefreshTime: null,
-          pendingEmail: null, // ✅ 清除待驗證郵箱
-        });
-        logger.info('AUTH', 'Logout successful');
+      logout: async () => {
+        try {
+          // 嘗試調用後端登出 API（如果有 token）
+          const token = tokenManager.getAccessToken();
+          if (token) {
+            try {
+              const response = await fetch('/api/auth/logout', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token}`,
+                },
+                credentials: 'include',
+              });
+              
+              // 即使 API 調用失敗，也繼續清除本地狀態
+              if (!response.ok) {
+                console.warn('[AUTH] Logout API call failed, but clearing local state anyway');
+              }
+            } catch (apiError) {
+              // API 調用失敗不影響登出流程（JWT 無狀態）
+              console.warn('[AUTH] Logout API error:', apiError);
+            }
+          }
+        } catch (error) {
+          console.error('[AUTH] Logout error:', error);
+        } finally {
+          // 無論 API 調用是否成功，都清除本地狀態
+          tokenManager.clear();
+          
+          // 清除 React Query 緩存
+          const { queryClient } = await import('@/lib/queryClient');
+          queryClient.clear();
+          
+          set({
+            user: null,
+            token: null,
+            refreshToken: null,
+            isAuthenticated: false,
+            error: null,
+            needsVerification: false, // ✅ 清除郵箱驗證標記
+            lastRefreshTime: null,
+            pendingEmail: null, // ✅ 清除待驗證郵箱
+          });
+          
+          logger.info('AUTH', 'Logout successful');
+        }
       },
 
       // ========== 檢查認證狀態 ==========
