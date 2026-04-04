@@ -25,11 +25,11 @@ const DEFAULT_TEMPLATES = [
   }
 ];
 
-async function seedTemplates(coachId?: number) {
+async function seedTemplates(coachId?: string) {
   try {
     console.log('🟡 開始創建邀請模板...');
 
-    let coaches: { id: number }[] = [];
+    let coaches: { id: string }[] = [];
 
     if (coachId) {
       // 為指定教練創建
@@ -51,12 +51,13 @@ async function seedTemplates(coachId?: number) {
       const { pool } = await import('./db');
       const result = await pool.query(`
         SELECT id FROM users 
-        WHERE role IN ('COACH', 'BOTH', 'ADMIN') 
-        OR UPPER(role) IN ('COACH', 'BOTH', 'ADMIN')
+        WHERE role IN ('COACH', 'ADMIN') 
+        OR UPPER(role) IN ('COACH', 'ADMIN')
       `);
       
-      const allCoaches = result.rows.map((row: any) => ({ id: parseInt(row.id) }));
-
+      const allCoaches = result.rows
+        .map((row: any) => ({ id: String(row.id) }))
+        .filter((c: { id: string }) => c.id.length > 0);
       coaches = allCoaches;
       console.log(`🟡 找到 ${coaches.length} 位教練`);
     }
@@ -97,12 +98,7 @@ async function seedTemplates(coachId?: number) {
 
 // 從命令行參數獲取 coachId
 const coachIdArg = process.argv[2];
-const coachId = coachIdArg ? parseInt(coachIdArg, 10) : undefined;
-
-if (coachIdArg && isNaN(coachId!)) {
-  console.error('❌ 無效的教練 ID');
-  process.exit(1);
-}
+const coachId = coachIdArg && typeof coachIdArg === 'string' ? coachIdArg : undefined;
 
 seedTemplates(coachId)
   .then(() => {

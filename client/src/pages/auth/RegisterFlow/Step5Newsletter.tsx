@@ -22,6 +22,7 @@ import {
   RadioGroup,
   RadioGroupItem,
 } from '@/components/ui/radio-group';
+import { regPrimaryButtonClass, regStepSubtitleClass, regStepTitleClass } from './register-ui';
 
 // ========== 類型定義 ==========
 
@@ -114,14 +115,14 @@ export default function Step5Newsletter({
   return (
     <div className="w-full space-y-6">
       {/* 標題區域 */}
-      <div className="text-center space-y-2">
-        <h2 className="text-3xl font-bold text-white">建立你的帳號</h2>
-        <p className="text-lg text-gray-400">步驟 5/6: 保持聯繫</p>
+      <div>
+        <h2 className={regStepTitleClass}>建立你的帳號</h2>
+        <p className={regStepSubtitleClass}>步驟 5/7：保持聯繫</p>
       </div>
 
       {/* 郵件圖標 */}
       <div className="flex justify-center">
-        <div className="w-24 h-24 rounded-full bg-blue-500/20 border-2 border-blue-500/50 flex items-center justify-center">
+        <div className="flex h-24 w-24 items-center justify-center rounded-full border border-blue-500/30 bg-blue-600/10">
           <Mail className="w-12 h-12 text-blue-400" />
         </div>
       </div>
@@ -130,10 +131,10 @@ export default function Step5Newsletter({
       <div className="space-y-6">
         {/* 標題和描述 */}
         <div className="text-center space-y-2">
-          <h3 className="text-xl md:text-2xl font-bold text-white">
+          <h3 className="text-xl font-black tracking-tight text-white md:text-2xl">
             📧 訂閱我們的郵件
           </h3>
-          <p className="text-white/70 text-sm md:text-base">
+          <p className="text-base text-neutral-400">
             獲取健身提示、食譜和優惠
           </p>
         </div>
@@ -161,7 +162,7 @@ export default function Step5Newsletter({
                   <div
                     className={`relative border-2 rounded-lg p-4 transition-all duration-200 cursor-pointer ${
                       field.value === true
-                        ? 'border-emerald-500 bg-emerald-500/10'
+                        ? 'border-blue-600 bg-blue-600/10'
                         : 'border-gray-700 bg-slate-900/50 hover:border-slate-600'
                     }`}
                     onClick={() => {
@@ -175,14 +176,14 @@ export default function Step5Newsletter({
                       <RadioGroupItem
                         value="yes"
                         id="newsletter-yes"
-                        className="border-gray-700 data-[state=checked]:border-emerald-500 data-[state=checked]:bg-emerald-500"
+                        className="border-gray-700 data-[state=checked]:border-blue-600 data-[state=checked]:bg-blue-600"
                       />
                       <div className="flex-1">
                         <Label
                           htmlFor="newsletter-yes"
                           className={`text-base font-medium cursor-pointer ${
                             field.value === true
-                              ? 'text-emerald-500'
+                              ? 'text-blue-400'
                               : 'text-white'
                           }`}
                         >
@@ -190,7 +191,7 @@ export default function Step5Newsletter({
                         </Label>
                       </div>
                       {field.value === true && (
-                        <Check className="w-5 h-5 text-emerald-500 flex-shrink-0" />
+                        <Check className="w-5 h-5 text-blue-400 flex-shrink-0" />
                       )}
                     </div>
                   </div>
@@ -199,7 +200,7 @@ export default function Step5Newsletter({
                   <div
                     className={`relative border-2 rounded-lg p-4 transition-all duration-200 cursor-pointer ${
                       field.value === false
-                        ? 'border-emerald-500 bg-emerald-500/10'
+                        ? 'border-blue-600 bg-blue-600/10'
                         : 'border-gray-700 bg-slate-900/50 hover:border-slate-600'
                     }`}
                     onClick={() => {
@@ -213,14 +214,14 @@ export default function Step5Newsletter({
                       <RadioGroupItem
                         value="no"
                         id="newsletter-no"
-                        className="border-gray-700 data-[state=checked]:border-emerald-500 data-[state=checked]:bg-emerald-500"
+                        className="border-gray-700 data-[state=checked]:border-blue-600 data-[state=checked]:bg-blue-600"
                       />
                       <div className="flex-1">
                         <Label
                           htmlFor="newsletter-no"
                           className={`text-base font-medium cursor-pointer ${
                             field.value === false
-                              ? 'text-emerald-500'
+                              ? 'text-blue-400'
                               : 'text-white'
                           }`}
                         >
@@ -228,7 +229,7 @@ export default function Step5Newsletter({
                         </Label>
                       </div>
                       {field.value === false && (
-                        <Check className="w-5 h-5 text-emerald-500 flex-shrink-0" />
+                        <Check className="w-5 h-5 text-blue-400 flex-shrink-0" />
                       )}
                     </div>
                   </div>
@@ -258,7 +259,7 @@ export default function Step5Newsletter({
           <Button
             type="submit"
             disabled={!isValid}
-            className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-semibold px-4 py-3 text-base rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-slate-950 shadow-lg hover:shadow-emerald-500/50 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-emerald-500"
+            className={regPrimaryButtonClass}
             aria-label="下一步"
             data-testid="button-next-step5"
           >

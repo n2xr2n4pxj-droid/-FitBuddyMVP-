@@ -93,6 +93,16 @@ function PublicRoute({ children }: PublicRouteProps) {
   return <>{children}</>;
 }
 
+function NotFoundRedirect() {
+  const [, setLocation] = useLocation();
+
+  useEffect(() => {
+    setLocation('/', { replace: true });
+  }, [setLocation]);
+
+  return null;
+}
+
 // ========== 路由配置組件 ==========
 
 /**
@@ -131,15 +141,7 @@ export default function AuthRoutes() {
       </Route>
 
       {/* 404 頁面 - 重定向到首頁 */}
-      <Route>
-        {() => {
-          const [, setLocation] = useLocation();
-          useEffect(() => {
-            setLocation('/', { replace: true });
-          }, [setLocation]);
-          return null;
-        }}
-      </Route>
+      <Route component={NotFoundRedirect} />
     </Switch>
   );
 }

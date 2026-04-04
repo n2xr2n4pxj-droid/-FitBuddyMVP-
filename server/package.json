@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx index.ts"
+    "dev": "tsx index.ts",
+    "seed": "tsx scripts/seed.ts",
+    "migrate:roles": "tsx scripts/migrate-both-role-to-coach.ts"
   },
   "dependencies": {
     "@types/bcrypt": "^6.0.0",

@@ -34,7 +34,7 @@ router.post('/workout-plans', isAuthenticated, async (req: any, res: any) => {
 
     const coach = coachResult[0];
 
-    if (coach?.role !== 'COACH' && coach?.role !== 'BOTH') {
+    if (coach?.role !== 'COACH') {
       return res.status(403).json({ error: 'Only coaches can create plans' });
     }
 

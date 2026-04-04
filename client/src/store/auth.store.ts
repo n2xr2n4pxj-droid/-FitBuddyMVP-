@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { api, tokenManager } from '@/lib/api-client';
 import { logger } from '@/lib/logger';
+import { normalizeRole } from '@/utils/role';
+import type { UserPayload } from '@/types/auth-payload';
 
 // ========== 類型定義 ==========
 export interface User {
@@ -26,6 +28,8 @@ export interface AuthState {
   needsVerification: boolean; // ✅ 郵箱驗證標記
   lastRefreshTime: number | null;
   pendingEmail: string | null; // ✅ 待驗證郵箱（註冊後未驗證）
+  registrationComplete: boolean; // 註冊流程是否完成（TDEE + 角色）
+  nextStep: number | null; // 未完成時下一步驟（3/4/7），完成時 null
 
   // ===== Setters =====
   setUser: (user: User | null) => void;
@@ -43,6 +47,19 @@ export interface AuthState {
   checkAuth: () => Promise<void>;
 }
 
+function toStoreUser(user: UserPayload | undefined): User | null {
+  if (!user) return null;
+  return {
+    id: user.id,
+    email: user.email,
+    firstName: user.firstName ?? null,
+    lastName: user.lastName ?? null,
+    avatar: user.avatar ?? null,
+    role: (normalizeRole(user.role) ?? 'client') as 'client' | 'coach' | 'admin' | 'both',
+    createdAt: user.createdAt ?? null,
+  };
+}
+
 // ========== Zustand Store ==========
 export const useAuthStore = create<AuthState>()(
   persist(
@@ -57,12 +74,23 @@ export const useAuthStore = create<AuthState>()(
       needsVerification: false, // ✅ 郵箱驗證標記
       lastRefreshTime: null,
       pendingEmail: null, // ✅ 待驗證郵箱
+      registrationComplete: true,
+      nextStep: null,
 
       // ===== Setters =====
       setUser: (user) => {
-        set({ user, isAuthenticated: !!user });
-        if (user) {
+        if (user && user.role) {
+          const normalized = normalizeRole(user.role) ?? (user.role as 'client' | 'coach' | 'admin' | 'both');
+          set({
+            user: { ...user, role: normalized },
+            isAuthenticated: true,
+          });
           logger.info('AUTH', 'User set', { userId: user.id });
+        } else {
+          set({ user, isAuthenticated: !!user });
+          if (user) {
+            logger.info('AUTH', 'User set', { userId: user.id });
+          }
         }
       },
 
@@ -154,7 +182,7 @@ export const useAuthStore = create<AuthState>()(
           tokenManager.setRefreshToken(refreshToken);
 
           set({
-            user,
+            user: toStoreUser(user),
             token,
             refreshToken,
             isAuthenticated: true,
@@ -244,7 +272,7 @@ export const useAuthStore = create<AuthState>()(
           tokenManager.setRefreshToken(refreshToken);
 
           set({
-            user,
+            user: toStoreUser(user),
             token,
             refreshToken,
             isLoading: false,
@@ -271,15 +299,25 @@ export const useAuthStore = create<AuthState>()(
 
         try {
           const response = await api.auth.me();
-          if (!response.data) {
+          const data = response.data as any;
+          if (!data) {
             throw new Error('No user data in response');
           }
+
+          const registrationComplete = data.registrationComplete === true;
+          const nextStep = typeof data.nextStep === 'number' ? data.nextStep : null;
           set({
-            user: response.data,
+            user: toStoreUser(data as UserPayload),
             isAuthenticated: true,
             isLoading: false,
+            registrationComplete,
+            nextStep,
           });
-          logger.info('AUTH', 'User fetched successfully', { userId: response.data.id });
+          logger.info('AUTH', registrationComplete ? 'User fetched successfully' : 'User fetched, registration incomplete', {
+            userId: data.id,
+            registrationComplete,
+            nextStep,
+          });
         } catch (err: any) {
           set({
             isLoading: false,
@@ -287,7 +325,6 @@ export const useAuthStore = create<AuthState>()(
           });
           logger.error('AUTH', 'fetchMe failed', { error: err.message });
 
-          // 401 錯誤表示 token 無效
           if (err.response?.status === 401) {
             get().logout();
           }
@@ -335,9 +372,11 @@ export const useAuthStore = create<AuthState>()(
             refreshToken: null,
             isAuthenticated: false,
             error: null,
-            needsVerification: false, // ✅ 清除郵箱驗證標記
+            needsVerification: false,
             lastRefreshTime: null,
-            pendingEmail: null, // ✅ 清除待驗證郵箱
+            pendingEmail: null,
+            registrationComplete: true,
+            nextStep: null,
           });
           
           logger.info('AUTH', 'Logout successful');
@@ -371,6 +410,9 @@ export const useAuthStore = create<AuthState>()(
         token: state.token,
         refreshToken: state.refreshToken,
         user: state.user,
+        // 持久化注冊狀態，使頁面重載後仍能判斷是否需要繼續完成注冊
+        registrationComplete: state.registrationComplete,
+        nextStep: state.nextStep,
       }),
       onRehydrateStorage: () => (state) => {
         // 驗證並保留原始的 login 函數引用

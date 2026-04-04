@@ -16,6 +16,34 @@ const getAuthHeaders = () => {
 };
 
 export const invitationService = {
+  async getCoachShareToken(): Promise<{ token: string; coachId?: string; expiresIn?: string }> {
+    const response = await fetch(`${API_BASE}/share-token`, {
+      headers: getAuthHeaders(),
+      credentials: 'include',
+    });
+
+    let data: any = null;
+    try {
+      data = await response.json();
+    } catch {
+      data = null;
+    }
+
+    if (!response.ok) {
+      throw new Error(data?.error || data?.message || '獲取教練邀請 token 失敗');
+    }
+
+    if (!data?.token || typeof data.token !== 'string') {
+      throw new Error('邀請 token 格式無效');
+    }
+
+    return {
+      token: data.token,
+      coachId: data.coachId,
+      expiresIn: data.expiresIn,
+    };
+  },
+
   /**
    * 發送邀請
    * @param clientEmail 客戶郵箱

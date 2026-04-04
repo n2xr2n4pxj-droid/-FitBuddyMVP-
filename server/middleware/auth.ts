@@ -40,9 +40,8 @@ export const coachOnly: RequestHandler = async (req: any, res, next) => {
 
     const userRole = (result.rows[0].role || '').toUpperCase();
     
-    // 數據庫枚舉: USER, COACH, BOTH, ADMIN
-    // 允許 COACH 和 BOTH（如果用戶同時是教練和客戶）
-    if (userRole !== 'COACH' && userRole !== 'BOTH') {
+    // 數據庫枚舉: USER, COACH, ADMIN
+    if (userRole !== 'COACH') {
       return res.status(403).json({ error: '僅教練可訪問此資源' });
     }
 
@@ -66,9 +65,8 @@ export const clientOnly: RequestHandler = async (req: any, res, next) => {
     // 檢查用戶角色（支持枚舉值）
     const userRole = (req.user.role || req.user.claims?.role || '').toUpperCase();
     
-    // 數據庫枚舉: USER, COACH, BOTH, ADMIN
-    // 允許 USER 和 BOTH（如果用戶同時是教練和客戶）
-    if (userRole !== 'USER' && userRole !== 'BOTH') {
+    // 數據庫枚舉: USER, COACH, ADMIN
+    if (userRole !== 'USER') {
       return res.status(403).json({ error: '僅客戶可訪問此資源' });
     }
 

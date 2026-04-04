@@ -4,11 +4,30 @@ import { useLocation } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { tokenManager } from '@/lib/api-client';
+import { useToast } from '@/hooks/use-toast';
 import { useAuthStore } from '@/store/auth.store';
+import { isCoachRole, isClientRole, isBothRole } from '@/utils/role';
+import { cn } from '@/lib/utils';
+import authService from '@/services/authService';
+import { clearPendingCoachRef, getPendingCoachRef } from '@/lib/coach-ref';
+import { FcGoogle } from 'react-icons/fc';
 
-export default function GoogleLoginButton() {
+interface GoogleLoginButtonProps {
+  flow?: 'register' | 'login'; // ← 添加 flow 參數
+  buttonClassName?: string;
+  onSuccess?: (data: any) => void;
+  onError?: (error: string) => void;
+}
+
+export default function GoogleLoginButton({ 
+  flow = 'login', // ← 默認為 login
+  buttonClassName,
+  onSuccess,
+  onError
+}: GoogleLoginButtonProps) {
   const [, setLocation] = useLocation();
-  const { setUser, setToken, setRefreshToken } = useAuthStore();
+  const { toast } = useToast();
+  const { setUser, setToken, setRefreshToken, fetchMe, logout } = useAuthStore();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,11 +52,46 @@ export default function GoogleLoginButton() {
           body: JSON.stringify({
             code: codeResponse.code,
             clientId: clientId,
+            flow: flow, // ← 傳遞 flow 參數給後端
           }),
         });
 
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({}));
+          
+          console.log('[GoogleLoginButton] ❌ Error:', {
+            status: response.status,
+            error: errorData.error,
+            message: errorData.message,
+          });
+
+          // 根據錯誤類型進行處理
+          if (errorData.error === 'USER_ALREADY_EXISTS') {
+            // 用戶已存在 → 切換到登入頁面
+            const errorMessage = errorData.message || '你的帳戶已註冊，請使用登入功能';
+            console.log('[GoogleLoginButton] → User already exists, redirecting to /login');
+            setLoading(false);
+            setError(errorMessage);
+            if (onError) onError(errorMessage);
+            setTimeout(() => {
+              window.location.replace('/login');
+            }, 1000);
+            return;
+          }
+
+          if (errorData.error === 'USER_NOT_FOUND') {
+            // 用戶不存在 → 切換到註冊頁面
+            const errorMessage = errorData.message || '你的帳戶並未註冊，請先註冊';
+            console.log('[GoogleLoginButton] → User not found, redirecting to /register?step=1');
+            setLoading(false);
+            setError(errorMessage);
+            if (onError) onError(errorMessage);
+            setTimeout(() => {
+              window.location.replace('/register?step=1');
+            }, 1000);
+            return;
+          }
+
           throw new Error(errorData.error || errorData.message || 'Google 登錄失敗');
         }
 
@@ -111,102 +165,74 @@ export default function GoogleLoginButton() {
           setRefreshToken(refreshToken);
         }
 
-        // 確保認證狀態已更新
-        // setUser 會自動設置 isAuthenticated = true
-
-        // ✅ OAuth 註冊流程修復：使用新的註冊狀態 API 檢查完整註冊流程
+        // ✅ 以伺服器為準：呼叫 /auth/me 取得 registrationComplete / nextStep 再決定導向
         try {
-          // ✅ 確保使用正確的 token 格式
-          const tokenForAPI = accessToken || tokenManager.getAccessToken();
-          if (!tokenForAPI) {
-            console.error('[GoogleLoginButton] ❌ No access token available for API call');
-            throw new Error('No access token available');
-          }
+          await fetchMe();
+        } catch (meErr) {
+          console.error('[GoogleLoginButton] fetchMe failed after OAuth:', meErr);
+          tokenManager.clear();
+          logout();
+          setLoading(false);
+          setError('登入驗證失敗，請重新登入');
+          if (onError) onError('登入驗證失敗，請重新登入');
+          window.location.replace('/login');
+          return;
+        }
 
-          // ✅ 添加超時和錯誤處理
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 秒超時
-
-          // 調用註冊狀態檢查 API
-          const registrationStatusResponse = await fetch('/api/auth/registration-status', {
-            method: 'GET',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${tokenForAPI}`,
-            },
-            credentials: 'include',
-            signal: controller.signal,
-          });
-
-          clearTimeout(timeoutId);
-
-          let registrationStatus = 'incomplete';
-          let nextStep: number | null = null;
-
-          if (registrationStatusResponse.ok) {
-            const statusData = await registrationStatusResponse.json();
-            registrationStatus = statusData.data?.registrationStatus || 'incomplete';
-            nextStep = statusData.data?.nextStep || null;
-            
-            console.log('[GoogleLoginButton] ✅ Registration status check:', {
-              registrationStatus,
-              nextStep,
-              completedSteps: statusData.data?.completedSteps,
-            });
-          } else {
-            const errorData = await registrationStatusResponse.json().catch(() => ({}));
-            console.error('[GoogleLoginButton] ⚠️ Registration status API failed:', {
-              status: registrationStatusResponse.status,
-              error: errorData.error || errorData.message,
-            });
-            // ✅ API 失敗時，假設未完成並重定向到步驟 3（TDEE 設置開始）
-            registrationStatus = 'partial';
-            nextStep = 3;
-          }
-
-          // ✅ 使用 window.location.replace 防止返回按鈕混亂，並添加延遲防止競態條件
-          setTimeout(() => {
-            setLoading(false);
-            
-            console.log('[GoogleLoginButton] 🔀 Redirecting based on registration status:', {
-              registrationStatus,
-              nextStep,
-            });
-            
-            if (registrationStatus === 'complete') {
-              // 已完成所有註冊步驟，重定向到 Dashboard
-              console.log('[GoogleLoginButton] → Registration complete, redirecting to /dashboard');
-              window.location.replace('/dashboard');
-            } else if (registrationStatus === 'partial' && nextStep) {
-              // 部分完成，重定向到相應的註冊步驟
-              console.log(`[GoogleLoginButton] → Registration partial, redirecting to /register?step=${nextStep}`);
-              window.location.replace(`/register?step=${nextStep}`);
-            } else {
-              // 未完成，重定向到步驟 1（開始註冊流程）
-              console.log('[GoogleLoginButton] → Registration incomplete, redirecting to /register?step=1');
-              window.location.replace('/register?step=1');
+        const pendingCoachRef = getPendingCoachRef();
+        if (pendingCoachRef) {
+          try {
+            const result = await authService.applyCoachRef(pendingCoachRef);
+            if (result.linked || result.alreadyLinked) {
+              clearPendingCoachRef();
+              toast({
+                title: result.alreadyLinked ? '邀請來源' : '邀請來源已更新',
+                description: result.alreadyLinked
+                  ? '你的帳戶已與此教練邀請來源綁定'
+                  : '已自動綁定你的教練邀請來源',
+              });
             }
-          }, 300); // ✅ 減少延遲時間，從 500ms 改為 300ms
-        } catch (statusError: any) {
-          // ✅ 如果註冊狀態檢查失敗，假設未完成並重定向到註冊流程步驟 3
-          console.error('[GoogleLoginButton] ❌ Registration status check error:', statusError);
-          setTimeout(() => {
-            setLoading(false);
-            // 錯誤時，假設需要完成 TDEE 設置，重定向到步驟 3
-            console.log('[GoogleLoginButton] → Error occurred, redirecting to /register?step=3 (assume TDEE incomplete)');
-            window.location.replace('/register?step=3');
-          }, 300); // ✅ 減少延遲時間
+          } catch (applyErr) {
+            // 補償流程失敗不阻斷 OAuth 登入
+            console.warn('[GoogleLoginButton] applyCoachRef failed:', applyErr);
+          }
+        }
+
+        const { registrationComplete: complete, nextStep: step, user: meUser } = useAuthStore.getState();
+        const stepNum = step ?? 3;
+
+        if (onSuccess) {
+          onSuccess(data);
+        }
+
+        setLoading(false);
+
+        if (complete) {
+          const role = (meUser?.role ?? '').toString().toLowerCase();
+          if (isCoachRole(role)) {
+            window.location.replace('/coach-dashboard');
+          } else if (isClientRole(role) || isBothRole(role)) {
+            window.location.replace('/client-dashboard');
+          } else {
+            window.location.replace('/dashboard');
+          }
+        } else {
+          window.location.replace(`/register-flow?step=${stepNum}`);
         }
       } catch (err: any) {
         console.error('[GoogleLoginButton] Error:', err);
-        setError(err.message || 'Google 登錄失敗，請稍後再試');
+        const errorMessage = err.message || 'Google 登錄失敗，請稍後再試';
+        setError(errorMessage);
         setLoading(false);
+        if (onError) onError(errorMessage);
       }
     },
     onError: (errorResponse) => {
       console.error('[GoogleLoginButton] Google OAuth error:', errorResponse);
-      setError('Google 登錄失敗，請稍後再試');
+      const errorMessage = 'Google 登錄失敗，請稍後再試';
+      setError(errorMessage);
       setLoading(false);
+      if (onError) onError(errorMessage);
     },
   });
 
@@ -225,10 +251,17 @@ export default function GoogleLoginButton() {
       <Button
         onClick={() => googleLogin()}
         disabled={loading}
-        className="w-full"
+        className={cn("w-full", buttonClassName)}
         variant="outline"
       >
-        {loading ? '登錄中...' : '🔐 Google 登錄'}
+        {loading ? (
+          '登錄中...'
+        ) : (
+          <>
+            <FcGoogle className="h-5 w-5" aria-hidden />
+            Google 登錄
+          </>
+        )}
       </Button>
       {error && (
         <Alert variant="destructive">

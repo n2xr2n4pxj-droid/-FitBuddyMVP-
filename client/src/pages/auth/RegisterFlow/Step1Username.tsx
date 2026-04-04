@@ -1,11 +1,11 @@
 /**
  * FitBuddy 註冊流程 - 步驟 1: 創建用戶名稱
- * 
+ *
  * 生產級別的用戶名稱輸入組件
  * - 使用 React + TypeScript + React Hook Form
- * - 實時驗證用戶名稱可用性（300ms 防抖）
+ * - 即時欄位驗證（RHF）+ 可用性檢查（500ms debounce 後才觸發）
  * - 顯示驗證反饋和建議名稱
- * 
+ *
  * 注意：稍後會使用 useRegisterStore (Zustand store)
  * 目前使用 props 傳遞的 onUpdate 函數更新狀態
  */
@@ -18,6 +18,9 @@ import { Check, X, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useDebounce } from '@/hooks/useDebounce';
+import { apiClient } from '@/lib/api-client';
+import { regInputClass, regPrimaryButtonClass, regStepSubtitleClass, regStepTitleClass } from './register-ui';
 
 // ========== 類型定義 ==========
 
@@ -53,6 +56,8 @@ export interface Step1UsernameProps {
   onNext?: () => void;
 }
 
+const AVAILABILITY_DEBOUNCE_MS = 500;
+
 // ========== 驗證 Schema ==========
 
 /**
@@ -73,42 +78,19 @@ const usernameSchema = z
     message: '用戶名稱不能只包含下劃線',
   });
 
-// ========== API 模擬 ==========
-
 /**
- * 模擬已被佔用的用戶名稱
- * 稍後會替換為實際的 API 調用
+ * GET /api/v1/users/check-username?username=xxx（公開，見 server/routes/users-v1.ts）
+ * 後端以 users.username 做不分大小寫比對。
  */
-const TAKEN_USERNAMES = ['john', 'fitbuddy', 'admin', 'test', 'user', 'fitbuddy123'];
-
-/**
- * 模擬檢查用戶名稱可用性的 API 調用
- * 
- * @param username - 要檢查的用戶名稱
- * @returns Promise<UsernameCheckResponse>
- */
-const checkUsernameAvailability = async (
+async function checkUsernameAvailability(
   username: string
-): Promise<UsernameCheckResponse> => {
-  // 模擬 API 延遲
-  await new Promise((resolve) => setTimeout(resolve, 500));
-
-  const lowerUsername = username.toLowerCase();
-
-  // 檢查是否已被佔用
-  if (TAKEN_USERNAMES.includes(lowerUsername)) {
-    return {
-      available: false,
-      suggestions: [
-        `${username}19`,
-        `${username}_fitness`,
-        `fit_${username}`,
-      ],
-    };
-  }
-
-  return { available: true };
-};
+): Promise<UsernameCheckResponse> {
+  const { data } = await apiClient.get<UsernameCheckResponse>(
+    '/api/v1/users/check-username',
+    { params: { username } }
+  );
+  return data;
+}
 
 // ========== Step1Username 組件 ==========
 
@@ -120,13 +102,10 @@ export default function Step1Username({
   onUpdate,
   onNext,
 }: Step1UsernameProps): JSX.Element {
-  // 用戶名稱可用性檢查狀態
   const [checking, setChecking] = useState(false);
   const [availabilityResult, setAvailabilityResult] =
     useState<UsernameCheckResponse | null>(null);
-  const [debounceTimer, setDebounceTimer] = useState<NodeJS.Timeout | null>(null);
 
-  // React Hook Form
   const {
     register,
     handleSubmit,
@@ -138,82 +117,70 @@ export default function Step1Username({
     defaultValues: {
       username: data.username || '',
     },
-    mode: 'onChange', // 實時驗證
+    mode: 'onChange',
   });
 
   const username = watch('username');
+  const debouncedUsername = useDebounce(username ?? '', AVAILABILITY_DEBOUNCE_MS);
 
-  // 監聽用戶名稱變化，實時更新到父組件
+  // 防抖後再同步父層，減少 RegisterFlow 每鍵重繪
   useEffect(() => {
-    if (username !== data.username) {
-      onUpdate({ username });
-    }
-  }, [username, data.username, onUpdate]);
+    onUpdate({ username: debouncedUsername });
+  }, [debouncedUsername, onUpdate]);
 
-  // 防抖檢查用戶名稱可用性
+  // 僅依「防抖後」的值觸發可用性檢查（不於 onChange 內 await API）
   useEffect(() => {
-    // 清除之前的定時器
-    if (debounceTimer) {
-      clearTimeout(debounceTimer);
-    }
+    const trimmed = debouncedUsername.trim();
 
-    // 如果用戶名稱為空或格式無效，不進行檢查
-    if (!username || username.trim().length === 0) {
+    if (trimmed.length === 0) {
       setAvailabilityResult(null);
+      setChecking(false);
       return;
     }
 
-    // 先進行格式驗證
+    if (trimmed.length < 3) {
+      setAvailabilityResult(null);
+      setChecking(false);
+      return;
+    }
+
+    let parsed: string;
     try {
-      usernameSchema.parse(username);
+      parsed = usernameSchema.parse(trimmed);
     } catch {
-      // 格式無效，不進行可用性檢查
       setAvailabilityResult(null);
+      setChecking(false);
       return;
     }
 
-    // 設置防抖定時器（300ms）
+    let cancelled = false;
     setChecking(true);
-    const timer = setTimeout(async () => {
+
+    void (async () => {
       try {
-        const result = await checkUsernameAvailability(username);
+        const result = await checkUsernameAvailability(parsed);
+        if (cancelled) return;
         setAvailabilityResult(result);
       } catch (error) {
         console.error('檢查用戶名稱可用性失敗:', error);
+        if (cancelled) return;
         setAvailabilityResult(null);
       } finally {
-        setChecking(false);
+        if (!cancelled) {
+          setChecking(false);
+        }
       }
-    }, 300);
+    })();
 
-    setDebounceTimer(timer);
-
-    // 清理函數
     return () => {
-      if (timer) {
-        clearTimeout(timer);
-      }
+      cancelled = true;
     };
-  }, [username]);
+  }, [debouncedUsername]);
 
-  // 組件卸載時清理定時器
-  useEffect(() => {
-    return () => {
-      if (debounceTimer) {
-        clearTimeout(debounceTimer);
-      }
-    };
-  }, [debounceTimer]);
-
-  /**
-   * 處理表單提交（前往下一步）
-   */
   const onSubmit = useCallback(
     (formData: { username: string }) => {
-      // 更新 store（稍後會改為使用 registerStore.updateStep）
-      onUpdate({ username: formData.username });
-
-      // 前往下一步（稍後會改為使用 registerStore.setCurrentStep(2)）
+      const next = formData.username.trim();
+      onUpdate({ username: next });
       if (onNext) {
         onNext();
       }
@@ -221,9 +188,6 @@ export default function Step1Username({
     [onUpdate, onNext]
   );
 
-  /**
-   * 處理使用建議名稱
-   */
   const handleUseSuggestion = useCallback(
     (suggestedUsername: string) => {
       setValue('username', suggestedUsername, { shouldValidate: true });
@@ -232,8 +196,12 @@ export default function Step1Username({
     [setValue, onUpdate]
   );
 
-  // 判斷按鈕是否應該啟用
-  // 必須同時滿足：格式有效、不在檢查中、可用性檢查結果為可用
+  const debouncedTrimmed = debouncedUsername.trim();
+  const showDebouncedMinLengthHint =
+    debouncedTrimmed.length > 0 &&
+    debouncedTrimmed.length < 3 &&
+    !errors.username;
+
   const isFormValid =
     isValid &&
     !checking &&
@@ -243,15 +211,12 @@ export default function Step1Username({
 
   return (
     <div className="w-full space-y-6">
-      {/* 標題區域 */}
-      <div className="text-center space-y-2">
-        <h2 className="text-3xl font-bold text-white">建立你的帳號</h2>
-        <p className="text-lg text-gray-400">步驟 1/6: 選擇用戶名稱</p>
+      <div>
+        <h2 className={regStepTitleClass}>建立你的帳號</h2>
+        <p className={regStepSubtitleClass}>步驟 1/7：選擇用戶名稱</p>
       </div>
 
-      {/* 表單 */}
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-        {/* 用戶名稱輸入框 */}
         <div className="space-y-3">
           <Label htmlFor="username" className="text-sm font-medium text-white">
             用戶名稱
@@ -261,18 +226,17 @@ export default function Step1Username({
               id="username"
               type="text"
               placeholder="username"
-              className={`bg-slate-900/50 border-gray-700 text-white placeholder:text-white/40 focus:border-emerald-500 focus:ring-emerald-500 pr-10 ${
+              className={`${regInputClass} pr-10 ${
                 hasError
                   ? 'border-red-500 focus:border-red-500 focus:ring-red-500'
                   : availabilityResult?.available
-                  ? 'border-emerald-500'
-                  : ''
+                    ? 'border-blue-600'
+                    : ''
               }`}
-              disabled={checking}
               {...register('username')}
               aria-invalid={hasError ? 'true' : 'false'}
               aria-describedby={
-                errors.username || availabilityResult
+                errors.username || availabilityResult || showDebouncedMinLengthHint
                   ? 'username-error username-suggestions'
                   : undefined
               }
@@ -280,13 +244,12 @@ export default function Step1Username({
               autoFocus
             />
 
-            {/* 實時驗證圖標 */}
-            <div className="absolute right-3 top-1/2 -translate-y-1/2">
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none">
               {checking ? (
                 <Loader2 className="w-5 h-5 text-white/40 animate-spin" />
               ) : username && username.trim().length > 0 ? (
                 !errors.username && availabilityResult?.available ? (
-                  <Check className="w-5 h-5 text-emerald-500" />
+                  <Check className="w-5 h-5 text-blue-400" />
                 ) : hasError ? (
                   <X className="w-5 h-5 text-red-500" />
                 ) : null
@@ -294,15 +257,13 @@ export default function Step1Username({
             </div>
           </div>
 
-          {/* 驗證錯誤和建議 */}
-          {(errors.username || availabilityResult) && (
+          {(errors.username || availabilityResult || showDebouncedMinLengthHint) && (
             <div
               id="username-error"
               className="space-y-3"
               role="alert"
               aria-live="polite"
             >
-              {/* 格式錯誤 */}
               {errors.username && (
                 <p className="text-red-500 text-sm flex items-center gap-2">
                   <X className="w-4 h-4" />
@@ -310,11 +271,16 @@ export default function Step1Username({
                 </p>
               )}
 
-              {/* 可用性檢查結果 */}
+              {showDebouncedMinLengthHint && (
+                <p className="text-amber-400/90 text-sm flex items-center gap-2">
+                  最少需 3 個字元（通過格式後才會檢查是否已被使用）
+                </p>
+              )}
+
               {!errors.username && availabilityResult && (
                 <>
                   {availabilityResult.available ? (
-                    <p className="text-emerald-500 text-sm flex items-center gap-2">
+                    <p className="text-blue-400 text-sm flex items-center gap-2">
                       <Check className="w-4 h-4" />
                       用戶名稱可用
                     </p>
@@ -325,7 +291,6 @@ export default function Step1Username({
                         用戶名稱已存在
                       </p>
 
-                      {/* 建議名稱 */}
                       {availabilityResult.suggestions &&
                         availabilityResult.suggestions.length > 0 && (
                           <div
@@ -342,7 +307,7 @@ export default function Step1Username({
                                   key={index}
                                   type="button"
                                   onClick={() => handleUseSuggestion(suggestion)}
-                                  className="w-full text-left px-3 py-2 bg-slate-800/50 hover:bg-slate-800 border border-gray-700 hover:border-emerald-500/50 rounded-md text-emerald-500 hover:text-emerald-300 transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-slate-950 text-sm font-medium"
+                                  className="w-full text-left px-3 py-2 bg-slate-800/50 hover:bg-slate-800 border border-gray-700 hover:border-blue-600/50 rounded-md text-blue-400 hover:text-blue-300 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 focus:ring-offset-slate-950 text-sm font-medium"
                                   aria-label={`使用建議名稱: ${suggestion}`}
                                 >
                                   • {suggestion}
@@ -358,19 +323,17 @@ export default function Step1Username({
             </div>
           )}
 
-          {/* 提示信息 */}
-          {!errors.username && !availabilityResult && username && username.trim().length > 0 && (
+          {!errors.username && !availabilityResult && !showDebouncedMinLengthHint && username && username.trim().length > 0 && (
             <p className="text-white/50 text-xs">
               用戶名稱只能包含字母、數字和下劃線，3-20 個字符
             </p>
           )}
         </div>
 
-        {/* 下一步按鈕 */}
         <Button
           type="submit"
           disabled={!isFormValid || checking}
-            className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-semibold px-4 py-3 text-base rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-slate-950 shadow-lg hover:shadow-emerald-500/50 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-emerald-500"
+          className={regPrimaryButtonClass}
           aria-label="下一步"
           data-testid="button-next-step1"
         >
@@ -388,5 +351,4 @@ export default function Step1Username({
   );
 }
 
-// 導出驗證 schema 供其他地方使用
 export { usernameSchema };

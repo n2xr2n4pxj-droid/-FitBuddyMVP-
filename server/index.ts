@@ -16,8 +16,6 @@ import express, { type Request, Response, NextFunction } from "express";
 import { createRequire } from "module";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
-// ✅ 認證路由在 server/routes.ts 的 registerRoutes 函數中註冊
-// import authRouter from "./routes/auth"; // 如果需要直接註冊，取消註釋
 
 const require = createRequire(import.meta.url);
 const cors = require("cors");
@@ -40,13 +38,6 @@ app.use(express.urlencoded({ extended: false }));
 app.get('/health', (req, res) => {
   res.json({ status: 'ok' });
 });
-
-// ✅ 認證路由註冊
-// 注意：認證路由在 server/routes.ts 的 registerRoutes 函數中通過以下方式註冊：
-// app.use("/api", authRoutes);
-// 這意味著所有 auth 路由的前綴是 /api/auth/*
-// 如果需要直接在這裡註冊，可以取消下面的註釋：
-// app.use('/api/auth', authRouter);
 
 
 
@@ -88,8 +79,9 @@ app.use((req, res, next) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
 
-    res.status(status).json({ message });
-    throw err;
+    if (!res.headersSent) {
+      res.status(status).json({ message });
+    }
   });
 
   // importantly only setup vite in development and after

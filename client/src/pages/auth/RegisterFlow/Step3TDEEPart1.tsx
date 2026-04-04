@@ -12,7 +12,8 @@
  * 目前使用 props 傳遞的 onUpdate 函數更新狀態
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -31,6 +32,7 @@ import {
   RadioGroup,
   RadioGroupItem,
 } from '@/components/ui/radio-group';
+import { regInputClass, regPrimaryButtonClass, regStepSubtitleClass, regStepTitleClass } from './register-ui';
 
 // ========== 類型定義 ==========
 
@@ -46,6 +48,7 @@ export interface Step3TDEEPart1Props {
     gender: 'male' | 'female' | null;
     height: number | null;
     weight: number | null;
+    tdee?: number | null;
   };
 
   /**
@@ -57,6 +60,7 @@ export interface Step3TDEEPart1Props {
     gender: 'male' | 'female';
     height: number;
     weight: number;
+    tdee: number;
   }) => void;
 
   /**
@@ -188,11 +192,16 @@ export default function Step3TDEEPart1({
   const [heightUnit, setHeightUnit] = useState<'cm' | 'inches'>('cm');
   const [weightUnit, setWeightUnit] = useState<'kg' | 'lbs'>('kg');
 
-  // 初始化表單數據
-  const initializeFormData = (): Partial<TDEEPart1FormData> => {
+  // ✅ 根本修復：使用 useMemo 穩定 defaultValues 的引用，避免 React Hook Form 重複初始化
+  const defaultValues = useMemo<Partial<TDEEPart1FormData>>(() => {
     const result: Partial<TDEEPart1FormData> = {
+      birthYear: '',
+      birthMonth: '',
+      birthDay: '',
       gender: (data.gender || 'male') as 'male' | 'female',
+      heightValue: '',
       heightUnit: 'cm',
+      weightValue: '',
       weightUnit: 'kg',
     };
 
@@ -205,15 +214,22 @@ export default function Step3TDEEPart1({
     }
 
     // 解析身高和體重（統一轉換為 cm 和 kg）
-    if (data.height !== null) {
+    if (data.height !== null && data.height !== undefined) {
       result.heightValue = data.height.toString();
     }
-    if (data.weight !== null) {
+    if (data.weight !== null && data.weight !== undefined) {
       result.weightValue = data.weight.toString();
     }
 
     return result;
-  };
+    // ✅ 只在 data 的實際值變化時才更新（使用深度比較的簡化版本）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    data.birthDate?.getTime(),
+    data.gender,
+    data.height,
+    data.weight,
+  ]);
 
   // React Hook Form
   const {
@@ -224,9 +240,7 @@ export default function Step3TDEEPart1({
     formState: { errors, isValid },
   } = useForm<TDEEPart1FormData>({
     resolver: zodResolver(tdeePart1Schema),
-    defaultValues: {
-      ...initializeFormData(),
-    },
+    defaultValues,
     mode: 'onChange',
   });
 
@@ -326,63 +340,31 @@ export default function Step3TDEEPart1({
     setValue('weightUnit', newUnit);
   };
 
-  /**
-   * 監聽表單變化，實時更新到父組件
-   */
-  useEffect(() => {
-    const subscription = watch((formData) => {
-      if (
-        formData.birthYear &&
-        formData.birthMonth &&
-        formData.birthDay &&
-        formData.gender &&
-        formData.heightValue &&
-        formData.weightValue
-      ) {
-        try {
-          const year = parseInt(formData.birthYear, 10);
-          const month = parseInt(formData.birthMonth, 10) - 1;
-          const day = parseInt(formData.birthDay, 10);
-          const birthDate = new Date(year, month, day);
-
-          // 驗證日期有效性
-          if (
-            birthDate.getFullYear() === year &&
-            birthDate.getMonth() === month &&
-            birthDate.getDate() === day
-          ) {
-            // 轉換身高為 cm
-            let heightInCm = parseFloat(formData.heightValue);
-            if (formData.heightUnit === 'inches') {
-              heightInCm = convertHeight.inchesToCm(heightInCm);
-            }
-
-            // 轉換體重為 kg
-            let weightInKg = parseFloat(formData.weightValue);
-            if (formData.weightUnit === 'lbs') {
-              weightInKg = convertWeight.lbsToKg(weightInKg);
-            }
-
-            onUpdate({
-              birthDate,
-              gender: formData.gender,
-              height: heightInCm,
-              weight: weightInKg,
-            });
-          }
-        } catch (error) {
-          // 忽略錯誤
-        }
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, [watch, onUpdate]);
+  // ✅ 根本修復：移除實時同步的 useEffect
+  // 問題：實時同步導致父組件更新 → 父組件傳入新 data → defaultValues 引用變化 → 表單可能重新初始化
+  // 解決：只在表單提交時同步到父組件，避免雙向同步循環
+  // 註：如果需要實時驗證，可以使用 React Hook Form 的內建驗證，而不是同步到父組件
+  // useEffect(() => {
+  //   const subscription = watch((formData) => { ... });
+  //   return () => subscription.unsubscribe();
+  // }, [watch]);
 
   /**
    * 處理表單提交（前往下一步）
+   * ✅ 修復：使用 useRef 防止重複調用（React.StrictMode 問題）
    */
+  const isSubmittingRef = React.useRef(false);
+  
   const onSubmit = (formData: TDEEPart1FormData) => {
+    // ✅ 防止重複提交（React.StrictMode 在開發環境會掛載兩次）
+    if (isSubmittingRef.current) {
+      console.log('⚠️ [Step3TDEEPart1] onSubmit already called, skipping...');
+      return;
+    }
+    
+    isSubmittingRef.current = true;
+    console.log('✅ [Step3TDEEPart1] onSubmit called');
+    
     const year = parseInt(formData.birthYear, 10);
     const month = parseInt(formData.birthMonth, 10) - 1;
     const day = parseInt(formData.birthDay, 10);
@@ -400,27 +382,61 @@ export default function Step3TDEEPart1({
       weightInKg = convertWeight.lbsToKg(weightInKg);
     }
 
-    // 更新 store（稍後會改為使用 registerStore.updateStep(3, data)）
+    // ✅ 計算年齡
+    const today = new Date();
+    const age = today.getFullYear() - birthDate.getFullYear();
+    const monthDiff = today.getMonth() - birthDate.getMonth();
+    const actualAge = monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate()) 
+      ? age - 1 
+      : age;
+
+    // ✅ 計算 TDEE（使用默認 activityLevel 'sedentary'，因為 Step4 的 activityLevel 還沒確定）
+    // TDEE = BMR × Activity Multiplier
+    // BMR 計算：Mifflin-St Jeor Equation
+    // BMR = (10 × weight(kg)) + (6.25 × height(cm)) - (5 × age) + genderConstant
+    const genderConstant = formData.gender === 'male' ? 5 : -161;
+    const bmr = 10 * weightInKg + 6.25 * heightInCm - 5 * actualAge + genderConstant;
+    // 使用 'sedentary' (1.2) 作為默認 activity multiplier
+    const defaultActivityMultiplier = 1.2;
+    const tdee = Math.round(bmr * defaultActivityMultiplier);
+
+    console.log('✅ [Step3TDEEPart1] Calculated TDEE:', {
+      age: actualAge,
+      bmr: Math.round(bmr),
+      tdee: tdee,
+      activityMultiplier: defaultActivityMultiplier,
+    });
+
+    // ✅ 更新父組件狀態（先更新）
+    console.log('[Step3TDEEPart1] Calling onUpdate with data...');
     onUpdate({
       birthDate,
       gender: formData.gender,
       height: heightInCm,
       weight: weightInKg,
+      tdee: tdee, // ✅ 添加 TDEE 到更新數據
     });
 
-    // 前往下一步（稍後會改為使用 registerStore.setCurrentStep(4)）
+    // ✅ 前往下一步（後調用，此時 onUpdate 已觸發狀態更新）
+    // useEffect 會在 registerState 更新後自動驗證並進入下一步
+    console.log('[Step3TDEEPart1] Calling onNext...');
     if (onNext) {
       onNext();
     }
+    
+    // ✅ 重置提交標記（延遲一點，確保狀態更新完成）
+    setTimeout(() => {
+      isSubmittingRef.current = false;
+    }, 300);
   };
 
   return (
-    <div className="w-full space-y-6">
+    <div className="w-full space-y-6 step-3-container">
       {/* 標題區域 */}
-      <div className="text-center space-y-2">
-        <h2 className="text-3xl font-bold text-white">建立你的帳號</h2>
-        <p className="text-lg text-gray-400">
-          步驟 3/6: 個人信息 (用於計算 TDEE)
+      <div>
+        <h2 className={regStepTitleClass}>建立你的帳號</h2>
+        <p className={regStepSubtitleClass}>
+          步驟 3/7：個人信息（用於計算 TDEE）
         </p>
       </div>
 
@@ -435,9 +451,9 @@ export default function Step3TDEEPart1({
               name="birthYear"
               control={control}
               render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
+                <Select value={field.value || ''} onValueChange={field.onChange}>
                   <SelectTrigger
-                    className="bg-slate-900/50 border-gray-700 text-white focus:border-emerald-500 focus:ring-emerald-500"
+                    className={`${regInputClass} h-11 py-0 text-base`}
                     aria-invalid={errors.birthYear ? 'true' : 'false'}
                   >
                     <SelectValue placeholder="年" />
@@ -458,9 +474,9 @@ export default function Step3TDEEPart1({
               name="birthMonth"
               control={control}
               render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
+                <Select value={field.value || ''} onValueChange={field.onChange}>
                   <SelectTrigger
-                    className="bg-slate-900/50 border-gray-700 text-white focus:border-emerald-500 focus:ring-emerald-500"
+                    className={`${regInputClass} h-11 py-0 text-base`}
                     aria-invalid={errors.birthMonth ? 'true' : 'false'}
                   >
                     <SelectValue placeholder="月" />
@@ -482,13 +498,13 @@ export default function Step3TDEEPart1({
               control={control}
               render={({ field }) => (
                 <Select
-                  value={field.value}
+                  value={field.value || ''}
                   onValueChange={(value) => {
                     field.onChange(value);
                   }}
                 >
                   <SelectTrigger
-                    className="bg-slate-900/50 border-gray-700 text-white focus:border-emerald-500 focus:ring-emerald-500"
+                    className={`${regInputClass} h-11 py-0 text-base`}
                     aria-invalid={errors.birthDay ? 'true' : 'false'}
                   >
                     <SelectValue placeholder="日" />
@@ -522,7 +538,7 @@ export default function Step3TDEEPart1({
 
           {/* 年齡顯示 */}
           {calculatedAge !== null && (
-            <div className="mt-2 p-3 bg-slate-900/50 border border-gray-700 rounded-lg">
+            <div className="mt-2 rounded-xl border border-neutral-800 bg-neutral-950/40 p-3">
               <p className="text-white text-sm">
                 年齡: <span className="font-semibold">{calculatedAge} 歲</span>
               </p>
@@ -549,7 +565,7 @@ export default function Step3TDEEPart1({
                   <RadioGroupItem
                     value="female"
                     id="gender-female"
-                    className="border-gray-700 data-[state=checked]:border-emerald-500 data-[state=checked]:bg-emerald-500"
+                    className="border-gray-700 data-[state=checked]:border-blue-600 data-[state=checked]:bg-blue-600"
                   />
                   <Label
                     htmlFor="gender-female"
@@ -563,7 +579,7 @@ export default function Step3TDEEPart1({
                   <RadioGroupItem
                     value="male"
                     id="gender-male"
-                    className="border-gray-700 data-[state=checked]:border-emerald-500 data-[state=checked]:bg-emerald-500"
+                    className="border-gray-700 data-[state=checked]:border-blue-600 data-[state=checked]:bg-blue-600"
                   />
                   <Label
                     htmlFor="gender-male"
@@ -587,7 +603,8 @@ export default function Step3TDEEPart1({
         {/* 身高 */}
         <div className="space-y-2">
           <Label htmlFor="height" className="text-sm font-medium text-white">
-            身高
+            身高{' '}
+            <span className="font-medium text-neutral-500">(cm / 英吋)</span>
           </Label>
           <div className="flex gap-2">
             <Controller
@@ -599,7 +616,7 @@ export default function Step3TDEEPart1({
                   type="number"
                   step="0.1"
                   placeholder="173"
-                  className={`flex-1 bg-slate-900/50 border-gray-700 text-white placeholder:text-white/40 focus:border-emerald-500 focus:ring-emerald-500 ${
+                  className={`${regInputClass} flex-1 ${
                     errors.heightValue
                       ? 'border-red-500 focus:border-red-500 focus:ring-red-500'
                       : ''
@@ -621,7 +638,7 @@ export default function Step3TDEEPart1({
                     handleHeightUnitChange(value);
                   }}
                 >
-                  <SelectTrigger className="w-24 bg-slate-900/50 border-gray-700 text-white focus:border-emerald-500 focus:ring-emerald-500">
+                  <SelectTrigger className={`w-24 ${regInputClass} h-11 py-0 text-base`}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -642,7 +659,8 @@ export default function Step3TDEEPart1({
         {/* 體重 */}
         <div className="space-y-2">
           <Label htmlFor="weight" className="text-sm font-medium text-white">
-            體重
+            體重{' '}
+            <span className="font-medium text-neutral-500">(kg / lb)</span>
           </Label>
           <div className="flex gap-2">
             <Controller
@@ -654,7 +672,7 @@ export default function Step3TDEEPart1({
                   type="number"
                   step="0.1"
                   placeholder="70"
-                  className={`flex-1 bg-slate-900/50 border-gray-700 text-white placeholder:text-white/40 focus:border-emerald-500 focus:ring-emerald-500 ${
+                  className={`${regInputClass} flex-1 ${
                     errors.weightValue
                       ? 'border-red-500 focus:border-red-500 focus:ring-red-500'
                       : ''
@@ -676,7 +694,7 @@ export default function Step3TDEEPart1({
                     handleWeightUnitChange(value);
                   }}
                 >
-                  <SelectTrigger className="w-24 bg-slate-900/50 border-gray-700 text-white focus:border-emerald-500 focus:ring-emerald-500">
+                  <SelectTrigger className={`w-24 ${regInputClass} h-11 py-0 text-base`}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -698,7 +716,7 @@ export default function Step3TDEEPart1({
         <Button
           type="submit"
           disabled={!isValid}
-            className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-semibold px-4 py-3 text-base rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-slate-950 shadow-lg hover:shadow-emerald-500/50 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-emerald-500"
+          className={regPrimaryButtonClass}
           aria-label="下一步"
           data-testid="button-next-step3"
         >

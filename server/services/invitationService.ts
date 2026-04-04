@@ -10,12 +10,13 @@
  */
 
 import { db, pool } from '../db';
-import { invitations, users, coachClientRelationships, invitationTemplates } from '../db/schema';
+import { invitations, users, coachClientRelationships, coachClients, invitationTemplates } from '../db/schema';
 import emailService from './emailService';
 import { eq, and, or, desc } from 'drizzle-orm';
 import crypto from 'crypto';
 import { hashPassword } from '../replitAuth';
 import { config } from '../config/env';
+import { getUserByEmail } from '../db/queries';
 
 const INVITATION_CODE_LENGTH = 32;
 const INVITATION_EXPIRY_DAYS = 30;
@@ -25,6 +26,41 @@ const INVITATION_EXPIRY_DAYS = 30;
  */
 function generateInvitationToken(): string {
   return crypto.randomBytes(INVITATION_CODE_LENGTH / 2).toString('hex');
+}
+
+/**
+ * 僅對「已註冊用戶」建立邀請記錄（教練邀請已註冊用戶）
+ * 若該 email 未註冊則回傳錯誤，請對方先註冊。
+ */
+export async function createInvitationForExistingUser(
+  coachId: string,
+  email: string
+): Promise<{ success: true; data: any } | { success: false; error: string }> {
+  const normalizedEmail = email.trim().toLowerCase();
+  const existingUser = await getUserByEmail(normalizedEmail);
+  if (!existingUser) {
+    return { success: false, error: 'user not found, please ask them to register first' };
+  }
+
+  const invitationToken = generateInvitationToken();
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + INVITATION_EXPIRY_DAYS);
+
+  const [newInvitation] = await db
+    .insert(invitations)
+    .values({
+      senderId: coachId,             // UUID / varchar
+      receiverEmail: normalizedEmail,
+      receiverId: existingUser.id,   // 綁定到已存在用戶
+      invitationType: 'COACH_TO_CLIENT',
+      status: 'PENDING',
+      token: invitationToken,
+      expiresAt,
+      message: null,
+    })
+    .returning();
+
+  return { success: true, data: newInvitation };
 }
 
 /**
@@ -44,10 +80,6 @@ export async function sendInvitation(
   logId?: string;
 }> {
   try {
-    // ✅ 驗證發件人是否為教練
-    // 確保 coachId 是正確的類型（integer 或 string，取決於數據庫 schema）
-    const coachIdForQuery = typeof coachId === 'string' ? parseInt(coachId, 10) : coachId;
-    
     const [sender] = await db
       .select({ 
         id: users.id,
@@ -58,7 +90,7 @@ export async function sendInvitation(
         // 注意：users 表中沒有 phone 列，已從查詢中移除
       })
       .from(users)
-      .where(eq(users.id, coachIdForQuery))
+      .where(eq(users.id, coachId))
       .limit(1);
 
     if (!sender) {
@@ -69,9 +101,9 @@ export async function sendInvitation(
       };
     }
 
-    // 檢查角色（role 可能是 'coach' 或 'COACH' 或 'BOTH'）
+    // 檢查角色（role 可能是 'coach' 或 'COACH'）
     const role = sender.role?.toUpperCase();
-    if (!role || (role !== 'COACH' && role !== 'BOTH' && role !== 'ADMIN')) {
+    if (!role || (role !== 'COACH' && role !== 'ADMIN')) {
       return {
         success: false,
         error: '只有教練可以發送邀請',
@@ -95,13 +127,12 @@ export async function sendInvitation(
     }
 
     // ✅ 檢查是否已有待處理的邀請
-    // 使用已轉換的 coachIdForQuery
     const existingInvite = await db
       .select({ id: invitations.id })
       .from(invitations)
       .where(
         and(
-          eq(invitations.senderId, coachIdForQuery),
+          eq(invitations.senderId, coachId),
           eq(invitations.receiverEmail, clientEmail),
           eq(invitations.status, 'PENDING')
         )
@@ -122,11 +153,11 @@ export async function sendInvitation(
     expiresAt.setDate(expiresAt.getDate() + INVITATION_EXPIRY_DAYS);
 
     // ✅ 在數據庫中創建邀請記錄
-    // 使用已轉換的 coachIdForQuery，確保類型正確
+    // coachId 用於查詢（integer）
     const [newInvitation] = await db
       .insert(invitations)
       .values({
-        senderId: coachIdForQuery,
+        senderId: coachId,
         receiverEmail: clientEmail,
         invitationType: 'COACH_TO_CLIENT',
         status: 'PENDING',
@@ -198,7 +229,7 @@ function generateInvitationEmailHTML(
   clientName?: string
 ): string {
   const coachName = `${coach.firstName || ''} ${coach.lastName || ''}`.trim() || coach.email;
-  const supportEmail = config.email.sendgridSupportEmail || config.email.sendgridReplyTo || 'support@fitbuddy.hk';
+  const supportEmail = config.email.supportEmail || config.email.replyTo || 'support@fitbuddy.hk';
   
   return `
 <!DOCTYPE html>
@@ -554,15 +585,114 @@ export async function acceptInvitation(
 }
 
 /**
+ * 已註冊學員依邀請 ID 接受邀請（UUID 架構）
+ * 驗證邀請存在、未過期、狀態為 PENDING，且當前用戶為被邀請人，然後更新邀請為 ACCEPTED 並在 coach_clients 建立關聯。
+ */
+export async function acceptInvitationById(
+  invitationId: string,
+  clientId: string,
+  clientEmail: string
+): Promise<{ success: true; data: any } | { success: false; error: string }> {
+  const id = String(invitationId).trim();
+  const normalizedEmail = String(clientEmail).trim().toLowerCase();
+
+  const [invitation] = await db
+    .select({
+      id: invitations.id,
+      senderId: invitations.senderId,
+      receiverEmail: invitations.receiverEmail,
+      status: invitations.status,
+      expiresAt: invitations.expiresAt,
+    })
+    .from(invitations)
+    .where(eq(invitations.id, id))
+    .limit(1);
+
+  if (!invitation) {
+    return { success: false, error: '邀請不存在' };
+  }
+
+  if (invitation.status !== 'PENDING') {
+    return { success: false, error: '邀請已處理過' };
+  }
+
+  const expiresAt = new Date(invitation.expiresAt);
+  if (expiresAt < new Date()) {
+    await db
+      .update(invitations)
+      .set({ status: 'EXPIRED' })
+      .where(eq(invitations.id, id));
+    return { success: false, error: '邀請已過期' };
+  }
+
+  if (invitation.receiverEmail.toLowerCase() !== normalizedEmail) {
+    return { success: false, error: '僅被邀請人可接受此邀請' };
+  }
+
+  const coachId = invitation.senderId;
+
+  const [existing] = await db
+    .select({ id: coachClients.id })
+    .from(coachClients)
+    .where(
+      and(
+        eq(coachClients.coachId, coachId),
+        eq(coachClients.clientId, clientId)
+      )
+    )
+    .limit(1);
+
+  if (existing) {
+    await db
+      .update(invitations)
+      .set({
+        status: 'ACCEPTED',
+        respondedAt: new Date(),
+        receiverId: clientId,
+      })
+      .where(eq(invitations.id, id));
+    return {
+      success: true,
+      data: { message: '已建立教練-學員關聯', alreadyLinked: true },
+    };
+  }
+
+  await db
+    .update(invitations)
+    .set({
+      status: 'ACCEPTED',
+      respondedAt: new Date(),
+      receiverId: clientId,
+    })
+    .where(eq(invitations.id, id));
+
+  const [inserted] = await db
+    .insert(coachClients)
+    .values({
+      coachId,
+      clientId,
+      status: 'active',
+    })
+    .returning({ id: coachClients.id, coachId: coachClients.coachId, clientId: coachClients.clientId });
+
+  return {
+    success: true,
+    data: {
+      invitationId: id,
+      relationship: inserted,
+      message: '邀請已接受，教練-學員關聯已建立',
+    },
+  };
+}
+
+/**
  * 教練查看自己發出的所有邀請
  */
 export async function getCoachInvitations(coachId: string, status?: string) {
   try {
     console.log('🟡 [getCoachInvitations] START - coachId:', coachId, 'status:', status);
     
-    // 確保 coachId 是整數類型
-    const coachIdInt = typeof coachId === 'string' ? parseInt(coachId, 10) : coachId;
-    const conditions = [eq(invitations.senderId, coachIdInt)];
+    const conditions = [eq(invitations.senderId, coachId)];
     
     if (status) {
       console.log('🟡 [getCoachInvitations] Adding status filter:', status);
@@ -629,16 +759,13 @@ export async function getCoachInvitations(coachId: string, status?: string) {
  */
 export async function cancelInvitation(coachId: string, invitationId: string) {
   try {
-    // 確保 coachId 是整數類型
-    const coachIdInt = typeof coachId === 'string' ? parseInt(coachId, 10) : coachId;
-    
     const [updated] = await db
       .update(invitations)
       .set({ status: 'REJECTED' })
       .where(
         and(
           eq(invitations.id, invitationId),
-          eq(invitations.senderId, coachIdInt),
+          eq(invitations.senderId, coachId),
           eq(invitations.status, 'PENDING')
         )
       )
@@ -700,10 +827,7 @@ export async function resendInvitation(
       };
     }
 
-    // ✅ 驗證邀請屬於當前教練
-    // 確保類型一致（coachId 可能是字符串，senderId 是整數）
-    const coachIdInt = typeof coachId === 'string' ? parseInt(coachId, 10) : coachId;
-    if (invitation.senderId !== coachIdInt) {
+    if (invitation.senderId !== coachId) {
       return {
         success: false,
         error: '無權限重新發送此邀請',
@@ -721,7 +845,6 @@ export async function resendInvitation(
     }
 
     // ✅ 獲取教練信息
-    // 使用已轉換的 coachIdInt
     const [sender] = await db
       .select({ 
         id: users.id,
@@ -732,7 +855,7 @@ export async function resendInvitation(
         // 注意：users 表中沒有 phone 列，已從查詢中移除
       })
       .from(users)
-      .where(eq(users.id, coachIdInt))
+      .where(eq(users.id, coachId))
       .limit(1);
 
     if (!sender) {
@@ -847,7 +970,7 @@ export async function getCoachTemplates(coachId: string) {
     const templates = await db
       .select()
       .from(invitationTemplates)
-      .where(eq(invitationTemplates.coachId, parseInt(coachId)))
+      .where(eq(invitationTemplates.coachId, coachId))
       .orderBy(desc(invitationTemplates.createdAt));
 
     return templates;
@@ -882,7 +1005,7 @@ export async function createTemplate(
       .from(invitationTemplates)
       .where(
         and(
-          eq(invitationTemplates.coachId, parseInt(coachId)),
+          eq(invitationTemplates.coachId, coachId),
           eq(invitationTemplates.name, name)
         )
       )
@@ -895,7 +1018,7 @@ export async function createTemplate(
     const [newTemplate] = await db
       .insert(invitationTemplates)
       .values({
-        coachId: parseInt(coachId),
+        coachId,
         name: name.trim(),
         message: message.trim(),
         isDefault: false,
@@ -925,7 +1048,7 @@ export async function updateTemplate(
       .where(
         and(
           eq(invitationTemplates.id, templateId),
-          eq(invitationTemplates.coachId, parseInt(coachId))
+          eq(invitationTemplates.coachId, coachId)
         )
       )
       .limit(1);
@@ -950,7 +1073,7 @@ export async function updateTemplate(
           .from(invitationTemplates)
           .where(
             and(
-              eq(invitationTemplates.coachId, parseInt(coachId)),
+              eq(invitationTemplates.coachId, coachId),
               eq(invitationTemplates.name, updates.name.trim())
             )
           )
@@ -995,7 +1118,7 @@ export async function deleteTemplate(coachId: string, templateId: string) {
       .where(
         and(
           eq(invitationTemplates.id, templateId),
-          eq(invitationTemplates.coachId, parseInt(coachId))
+          eq(invitationTemplates.coachId, coachId)
         )
       )
       .limit(1);

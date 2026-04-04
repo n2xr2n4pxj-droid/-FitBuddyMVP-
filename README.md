@@ -288,6 +288,16 @@ To add a new feature:
 5. **Add page/route** in `client/src/App.tsx` if needed
 6. **Test the feature** end-to-end
 
+### Development Conventions (Interim)
+
+- **Auth payload single source**: use `@/types/auth-payload` for auth response/payload typing.
+- **Avoid legacy auth type drift**: do not add new references to legacy `AuthResponse` aliases in `client/src/types/auth.ts` or `client/src/lib/api.ts`.
+
+### PR Review Checklist (Interim)
+
+- [ ] New auth-related types/imports use `@/types/auth-payload`.
+- [ ] No new usage of legacy `AuthResponse` aliases is introduced.
+
 ## License
 
 MIT License - feel free to use this project for learning and personal use.

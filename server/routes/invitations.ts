@@ -5,21 +5,143 @@
  */
 
 import { Router } from 'express';
+import jwt from 'jsonwebtoken';
 import { authMiddleware, coachOnly } from '../middleware/auth';
 import { 
   sendInvitation, 
   getInvitationStatus, 
   acceptInvitation,
+  acceptInvitationById,
   getCoachInvitations,
   cancelInvitation,
   resendInvitation,
   getCoachTemplates,
   createTemplate,
   updateTemplate,
-  deleteTemplate
+  deleteTemplate,
+  createInvitationForExistingUser,
 } from '../services/invitationService';
+import { db } from '../db';
+import { invitations } from '../db/schema';
+import { eq, desc } from 'drizzle-orm';
+import { getUserById } from '../db/queries';
+import { verifyJWT } from '../replitAuth';
+import { config } from '../config/env';
 
 const router = Router();
+
+/**
+ * GET /share-token
+ * 取得 coach 專屬分享 token（用於前端生成可追蹤邀請連結）
+ */
+router.get('/share-token', verifyJWT, async (req: any, res: any) => {
+  try {
+    const coachId = req.user?.id ?? req.user?.claims?.sub;
+    if (!coachId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const currentUser = await getUserById(coachId);
+    if (!currentUser) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    const role = String(currentUser.role ?? '').toUpperCase();
+    if (role !== 'COACH' && role !== 'ADMIN') {
+      return res.status(403).json({ error: 'Only coach can generate share token' });
+    }
+
+    const token = jwt.sign(
+      {
+        type: 'coach_ref',
+        coachId,
+      },
+      config.jwt.secret,
+      {
+        expiresIn: '30d',
+      }
+    );
+
+    return res.status(200).json({
+      token,
+      coachId,
+      expiresIn: '30d',
+    });
+  } catch (error: any) {
+    console.error('❌ [API] GET /invitations/share-token Error:', error);
+    return res.status(500).json({ error: error?.message ?? 'Failed to generate share token' });
+  }
+});
+
+/**
+ * GET /
+ * 當前用戶相關邀請：發出的 + 收到的（需 JWT）
+ */
+router.get('/', verifyJWT, async (req: any, res: any) => {
+  try {
+    const currentId = req.user?.id ?? req.user?.claims?.sub;
+    if (!currentId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const currentUser = await getUserById(currentId);
+    if (!currentUser) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    const sent = await getCoachInvitations(currentId).catch(() => []);
+    const receivedRows = await db
+      .select()
+      .from(invitations)
+      .where(eq(invitations.receiverEmail, currentUser.email))
+      .orderBy(desc(invitations.createdAt));
+
+    const sentWithDir = Array.isArray(sent) ? sent.map((i: any) => ({ ...i, direction: 'sent' as const })) : [];
+    const receivedWithDir = receivedRows.map((i) => ({ ...i, direction: 'received' as const }));
+
+    const list = [...sentWithDir, ...receivedWithDir].sort(
+      (a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime()
+    );
+    return res.status(200).json(list);
+  } catch (error: any) {
+    console.error('❌ [API] GET /invitations Error:', error);
+    return res.status(500).json({ error: error?.message ?? 'Failed to get invitations' });
+  }
+});
+
+/**
+ * POST /
+ * 教練對已註冊用戶發送邀請（body: { email }）。若該 email 未註冊則回傳錯誤。
+ */
+router.post('/', verifyJWT, async (req: any, res: any) => {
+  try {
+    const coachId = req.user?.id ?? req.user?.claims?.sub;
+    if (!coachId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const currentUser = await getUserById(coachId);
+    if (!currentUser) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+    const role = String(currentUser.role ?? '').toUpperCase();
+    if (role !== 'COACH' && role !== 'ADMIN') {
+      return res.status(403).json({ error: 'Only coach can send invitations' });
+    }
+
+    const email = req.body?.email;
+    if (!email || typeof email !== 'string' || !email.trim()) {
+      return res.status(400).json({ error: 'email is required' });
+    }
+
+    const result = await createInvitationForExistingUser(coachId, email.trim());
+    if (!result.success) {
+      return res.status(400).json({ error: result.error });
+    }
+    return res.status(200).json(result.data);
+  } catch (error: any) {
+    console.error('❌ [API] POST /invitations Error:', error);
+    return res.status(500).json({ error: error?.message ?? 'Failed to create invitation' });
+  }
+});
 
 /**
  * POST /send
@@ -86,6 +208,46 @@ router.get('/status/:code', async (req: any, res: any) => {
   } catch (error: any) {
     console.error('❌ [API] Error getting invitation status:', error);
     res.status(400).json({ error: error.message || '獲取邀請狀態失敗' });
+  }
+});
+
+/**
+ * POST /:id/accept
+ * 已註冊學員依邀請 ID 接受邀請（需 JWT，且登入者須為被邀請人）
+ */
+router.post('/:id/accept', verifyJWT, async (req: any, res: any) => {
+  try {
+    const invitationId = req.params.id;
+    const currentId = req.user?.id ?? req.user?.claims?.sub;
+    if (!currentId) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const currentUser = await getUserById(currentId);
+    if (!currentUser) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+    if (!invitationId) {
+      return res.status(400).json({ error: '邀請 ID 為必填項' });
+    }
+
+    const result = await acceptInvitationById(
+      invitationId,
+      currentId,
+      currentUser.email ?? ''
+    );
+    if (!result.success) {
+      const status =
+        result.error === '邀請不存在'
+          ? 404
+          : result.error === '僅被邀請人可接受此邀請'
+            ? 403
+            : 400;
+      return res.status(status).json({ error: result.error });
+    }
+    return res.status(200).json(result.data);
+  } catch (error: any) {
+    console.error('❌ [API] POST /invitations/:id/accept Error:', error);
+    return res.status(500).json({ error: error?.message ?? '接受邀請失敗' });
   }
 });
 

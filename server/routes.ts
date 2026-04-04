@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import { rateLimit } from "express-rate-limit";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 import { meals } from "./db/schema";
@@ -8,30 +9,82 @@ import { format } from "date-fns";
 import { calculateTDEE, calculateMacros } from "./tdee";
 import { db } from "./db";
 import { eq, and } from "drizzle-orm";
+import { config } from "./config/env";
 import workoutRoutes from "./routes/workouts";
 import coachRoutes from "./routes/coaches";
+import coachClientRoutes from "./routes/coach-client";
 import workoutPlanRoutes from "./routes/workout-plans";
+import plansRoutes from "./routes/plans";
 import authRoutes from "./routes/auth";
 import invitationRoutes from "./routes/invitations";
 import emailAdminRouter from "./routes/emailAdminRoutes";
 import foodRoutes from "./routes/food";
+import healthRoutes from "./routes/health";
+import userRoutes from "./routes/users";
+import usersV1PublicRoutes from "./routes/users-v1";
+import aiRoutes from "./routes/ai";
+import exercisesRoutes from "./routes/exercises";
+import dashboardRoutes from "./routes/dashboard";
+import notificationsRoutes from "./routes/notifications";
+import analyticsRoutes from "./routes/analytics";
+import nutritionRoutes from "./routes/nutrition";
+
+// ==========================================
+// 速率限制：防止暴力破解 / 帳號枚舉
+// 每 IP 在 15 分鐘內最多呼叫 20 次，開發環境自動跳過
+// ==========================================
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "TOO_MANY_REQUESTS", message: "請求過於頻繁，請 15 分鐘後再試" },
+  skip: () => config.app.env === "development",
+});
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
   await setupAuth(app);
 
-  // Register auth routes
+  // Health (no auth)
+  app.use("/api", healthRoutes);
+  // Users (JWT, admin or self)
+  app.use("/api", userRoutes);
+
+  // Users v1 — 公開：GET /api/v1/users/check-username
+  app.use("/api/v1/users", usersV1PublicRoutes);
+
+  // Register auth routes（登入/註冊/忘記密碼加速率限制）
+  app.use("/api/auth/login", authLimiter);
+  app.use("/api/auth/register", authLimiter);
+  app.use("/api/auth/forgot-password", authLimiter);
   app.use("/api", authRoutes);
 
   // Register workout routes
   app.use("/api", workoutRoutes);
   
+  // AI routes: /api/ai/generate-routine, /api/ai/workout-summary
+  app.use("/api", aiRoutes);
+  
   // Register coach routes
   // Routes: /api/coaches/add-client, /api/coaches/invite, /api/coaches/clients, etc.
   app.use("/api", coachRoutes);
+  // Coach/client relationship list (coach_clients table): /api/coach/clients, /api/client/coaches
+  app.use("/api", coachClientRoutes);
   
   // Register workout plan routes
   app.use("/api", workoutPlanRoutes);
+
+  // Plans（Phase D）：/api/plans/*
+  app.use("/api", plansRoutes);
+  // Dashboard（Phase E）：/api/dashboard/*
+  app.use("/api/dashboard", dashboardRoutes);
+  // Notifications（Phase F）：/api/notifications/*
+  app.use("/api", notificationsRoutes);
+  // Analytics（Phase H）：/api/analytics/*
+  app.use("/api/analytics", analyticsRoutes);
+  // Nutrition（Phase G）：/api/nutrition/*
+  app.use("/api/nutrition", nutritionRoutes);
   
   // Register invitation routes (v1 API - recommended)
   // Routes: /api/v1/invitations/send, /api/v1/invitations/status/:code, /api/v1/invitations/accept/:code, etc.
@@ -47,6 +100,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Open Food Facts API routes
   // Routes: /api/food/search?query=...
   app.use("/api/food", foodRoutes);
+
+  // Exercises (動作庫)：GET /api/exercises?search=...
+  app.use("/api", exercisesRoutes);
 
   // Auth routes
   app.get("/api/auth/user", async (req: any, res) => {

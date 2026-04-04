@@ -3,6 +3,7 @@ import { useLocation } from 'wouter';
 import type { UserRole } from '@/types/auth';
 import { normalizeRole, isCoach, isClient, isAdmin } from '@/types/auth';
 import { useAuth } from '@/hooks/useAuth';
+import { tokenManager } from '@/lib/api-client';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -81,7 +82,7 @@ export const useCurrentUser = () => {
   useEffect(() => {
     const fetchUser = async () => {
       try {
-        const token = localStorage.getItem('authToken');
+        const token = tokenManager.getAccessToken();
         if (!token) {
           setLoading(false);
           return;
@@ -91,6 +92,7 @@ export const useCurrentUser = () => {
           headers: {
             Authorization: `Bearer ${token}`,
           },
+          credentials: 'include',
         });
 
         if (!response.ok) throw new Error('Failed');

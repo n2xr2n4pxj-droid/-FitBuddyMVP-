@@ -12,46 +12,34 @@ import { config } from "./config/env";
 
 // --- Local email/password auth for development ---
 
+// OWASP 2023：PBKDF2-HMAC-SHA512 最低 120,000 次迭代
+const PBKDF2_ITERATIONS = 120_000;
+
 export function hashPassword(password: string, salt?: string): string {
   const actualSalt = salt ?? crypto.randomBytes(16).toString("hex");
   const hash = crypto
-    .pbkdf2Sync(password, actualSalt, 10000, 64, "sha512")
+    .pbkdf2Sync(password, actualSalt, PBKDF2_ITERATIONS, 64, "sha512")
     .toString("hex");
   return `${actualSalt}:${hash}`;
 }
 
 export function verifyPassword(password: string, stored?: string | null): boolean {
-  if (!stored) {
-    console.log("[verifyPassword] No stored password hash provided");
-    return false;
-  }
-  
-  // 檢查格式：應該是 "salt:hash"
-  if (!stored.includes(":")) {
-    console.log("[verifyPassword] Invalid password hash format (missing colon)");
-    return false;
-  }
-  
+  if (!stored) return false;
+
+  if (!stored.includes(":")) return false;
+
   const [salt, hash] = stored.split(":");
-  
-  if (!salt || !hash) {
-    console.log("[verifyPassword] Invalid password hash format (missing salt or hash)");
-    return false;
-  }
-  
+  if (!salt || !hash) return false;
+
   const hashToVerify = crypto
-    .pbkdf2Sync(password, salt, 10000, 64, "sha512")
+    .pbkdf2Sync(password, salt, PBKDF2_ITERATIONS, 64, "sha512")
     .toString("hex");
-  
-  const isValid = hashToVerify === hash;
-  console.log("[verifyPassword] Verification details:", {
-    saltLength: salt.length,
-    hashLength: hash.length,
-    hashToVerifyLength: hashToVerify.length,
-    isValid,
-  });
-  
-  return isValid;
+
+  // 使用 timingSafeEqual 防止 timing attack
+  return crypto.timingSafeEqual(
+    Buffer.from(hashToVerify, "hex"),
+    Buffer.from(hash, "hex"),
+  );
 }
 
 export function getSession() {
@@ -420,10 +408,10 @@ export async function setupAuth(app: Express) {
   */
 }
 
-// JWT Secret - 從環境變量管理系統讀取
+// JWT Secret - 從環境變量管理系統讀取，與 routes/auth.ts 保持一致
 // 生產環境必須設置，開發環境可以使用默認值
 const getJWTSecret = (): string => {
-  const secret = config.jwt.secret || (config.app.env === 'production' ? '' : 'dev-jwt-secret-change-in-production');
+  const secret = config.jwt.secret || (config.app.env === 'production' ? '' : 'dev-jwt-secret-key');
   if (!secret && config.app.env === 'production') {
     throw new Error('JWT_SECRET must be set in production environment');
   }
@@ -445,6 +433,21 @@ export function generateJWT(user: { id: string; email: string; role?: string }):
   return jwt.sign(payload, JWT_SECRET, {
     expiresIn: expiresIn as any, // 從配置讀取（類型兼容性）
   } as SignOptions);
+}
+
+/** Neon / serverless Postgres 連線偶發斷線，不應與 JWT 無效混為一談 */
+function isTransientPoolError(err: unknown): boolean {
+  const e = err as NodeJS.ErrnoException & { message?: string };
+  const code = e?.code;
+  const msg = (e?.message ?? "").toLowerCase();
+  return (
+    code === "ECONNRESET" ||
+    code === "ETIMEDOUT" ||
+    code === "ECONNREFUSED" ||
+    msg.includes("econnreset") ||
+    msg.includes("tls connection") ||
+    msg.includes("socket disconnected")
+  );
 }
 
 // 🔧 驗證 JWT Token 中間件（支持 Bearer token 和 Session 混合）
@@ -496,54 +499,79 @@ export const verifyJWT: RequestHandler = async (req: any, res, next) => {
       console.log('[verifyJWT] 🔑 Bearer token found, verifying...');
       const token = authHeader.substring(7); // 移除 "Bearer " 前綴
       
+      let decoded: jwt.JwtPayload & { sub?: string; email?: string; role?: string };
       try {
-        const decoded = jwt.verify(token, JWT_SECRET) as any;
-        console.log('[verifyJWT] ✅ JWT decoded successfully:', {
-          sub: decoded.sub,
-          email: decoded.email,
-          role: decoded.role,
-        });
-        
-        // 從數據庫獲取用戶信息以確保用戶仍然存在
-        const result = await pool.query(
-          `SELECT id, email, first_name, last_name, role FROM users WHERE id = $1 LIMIT 1`,
-          [decoded.sub]
-        );
-        
-        if (result.rows.length === 0) {
-          console.log('[verifyJWT] ❌ User not found in database:', decoded.sub);
-          return res.status(401).json({ message: "User not found" });
-        }
-        
-        // 設置 req.user 以統一格式
-        req.user = {
-          id: result.rows[0].id,
-          email: result.rows[0].email,
-          firstName: result.rows[0].first_name,
-          lastName: result.rows[0].last_name,
-          role: result.rows[0].role,
-          claims: {
-            sub: result.rows[0].id,
-            email: result.rows[0].email,
-            role: result.rows[0].role,
-          },
+        decoded = jwt.verify(token, JWT_SECRET) as jwt.JwtPayload & {
+          sub?: string;
+          email?: string;
+          role?: string;
         };
-        
-        console.log('[verifyJWT] ✅ User set in req.user:', {
-          id: req.user.id,
-          email: req.user.email,
-          role: req.user.role,
-        });
-        console.log('[verifyJWT] ===== END (JWT) =====');
-        return next();
       } catch (jwtError: any) {
-        console.error('[verifyJWT] ❌ JWT verification failed:', {
+        console.error("[verifyJWT] ❌ JWT invalid:", {
           message: jwtError.message,
           name: jwtError.name,
-          stack: jwtError.stack,
         });
         return res.status(401).json({ message: "Invalid or expired token" });
       }
+
+      console.log("[verifyJWT] ✅ JWT decoded successfully:", {
+        sub: decoded.sub,
+        email: decoded.email,
+        role: decoded.role,
+      });
+
+      let result: { rows: Array<Record<string, unknown>> };
+      try {
+        result = await pool.query(
+          `SELECT id, email, first_name, last_name, role FROM users WHERE id = $1 LIMIT 1`,
+          [decoded.sub]
+        );
+      } catch (dbErr: any) {
+        console.error("[verifyJWT] ❌ DB error during user lookup:", {
+          message: dbErr?.message,
+          code: dbErr?.code,
+        });
+        if (isTransientPoolError(dbErr)) {
+          return res.status(503).json({
+            message: "Database temporarily unavailable, please retry",
+            code: "DB_TRANSIENT",
+          });
+        }
+        return res.status(500).json({ message: "Authentication error" });
+      }
+
+      if (result.rows.length === 0) {
+        console.log("[verifyJWT] ❌ User not found in database:", decoded.sub);
+        return res.status(401).json({ message: "User not found" });
+      }
+
+      const row = result.rows[0] as {
+        id: string;
+        email: string;
+        first_name: string | null;
+        last_name: string | null;
+        role: string;
+      };
+      req.user = {
+        id: row.id,
+        email: row.email,
+        firstName: row.first_name,
+        lastName: row.last_name,
+        role: row.role,
+        claims: {
+          sub: row.id,
+          email: row.email,
+          role: row.role,
+        },
+      };
+
+      console.log("[verifyJWT] ✅ User set in req.user:", {
+        id: req.user.id,
+        email: req.user.email,
+        role: req.user.role,
+      });
+      console.log("[verifyJWT] ===== END (JWT) =====");
+      return next();
     }
 
     // 3. 兩種認證方式都失敗

@@ -2,7 +2,7 @@
  * FitBuddy 認證系統 - TypeScript 類型定義
  */
 
-export type UserRole = 'USER' | 'COACH' | 'BOTH' | 'ADMIN';
+export type UserRole = 'USER' | 'COACH';
 
 export interface User {
   id: string;
@@ -41,7 +41,7 @@ export interface LoginRequest {
   password: string;
 }
 
-export interface AuthResponse {
+export interface LegacyAuthResponse {
   success: boolean;
   message: string;
   user?: {
@@ -56,6 +56,12 @@ export interface AuthResponse {
   token?: string;
   refreshToken?: string;
 }
+
+/**
+ * @deprecated 請改用 `AuthApiResponse`（來源：`@/types/auth-payload`）。
+ * 保留此別名僅為相容舊程式碼，避免再次新增第二套 auth payload 型別來源。
+ */
+export type AuthResponse = LegacyAuthResponse;
 
 export interface SelectRoleRequest {
   userId?: string;
@@ -76,14 +82,14 @@ export interface SelectRoleResponse {
 
 // 權限檢查函式
 export function isCoach(user: { role: UserRole }): boolean {
-  return user.role === 'COACH' || user.role === 'BOTH';
+  return user.role === 'COACH';
 }
 
 export function isClient(user: { role: UserRole }): boolean {
-  return user.role === 'USER' || user.role === 'BOTH';
+  return user.role === 'USER';
 }
 
-export function isAdmin(user: { role: UserRole }): boolean {
+export function isAdmin(user: { role: string }): boolean {
   return user.role === 'ADMIN';
 }
 
@@ -92,15 +98,13 @@ export function hasRole(user: { role: UserRole }, roles: UserRole[]): boolean {
 }
 
 export function isValidRole(role: string): role is UserRole {
-  return ['USER', 'COACH', 'BOTH', 'ADMIN'].includes(role);
+  return ['USER', 'COACH'].includes(role);
 }
 
 export function getRoleDisplayName(role: UserRole): string {
   const roleNames: Record<UserRole, string> = {
     USER: '用戶',
     COACH: '教練',
-    BOTH: '用戶 & 教練',
-    ADMIN: '管理員',
   };
   return roleNames[role];
 }

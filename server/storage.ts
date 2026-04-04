@@ -66,7 +66,7 @@ export class DatabaseStorage implements IStorage {
       passwordHash: row.password_hash,
       firstName: row.first_name || null,
       lastName: row.last_name || null,
-      role: (row.role || 'USER') as "USER" | "COACH" | "BOTH" | "ADMIN",
+      role: (row.role || 'USER') as "USER" | "COACH" | "ADMIN",
       avatar: null, // 數據庫中沒有此欄位，設為 null
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -99,7 +99,7 @@ export class DatabaseStorage implements IStorage {
       passwordHash: row.password_hash,
       firstName: row.first_name || null,
       lastName: row.last_name || null,
-      role: (row.role || 'USER') as "USER" | "COACH" | "BOTH" | "ADMIN",
+      role: (row.role || 'USER') as "USER" | "COACH" | "ADMIN",
       avatar: row.avatar || null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -514,7 +514,7 @@ export class DatabaseStorage implements IStorage {
       .from(meals)
       .where(
         and(
-          eq(meals.userId, typeof userId === 'number' ? userId : parseInt(userId, 10)),
+          eq(meals.userId, String(userId)),
           gte(meals.consumedAt, start),
           lte(meals.consumedAt, end)
         )

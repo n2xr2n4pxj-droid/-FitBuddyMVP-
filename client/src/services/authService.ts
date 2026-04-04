@@ -6,7 +6,8 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiClient, AuthResponse, RefreshTokenResponse } from '@/lib/api-client';
+import { apiClient, RefreshTokenResponse } from '@/lib/api-client';
+import type { AuthApiResponse, MePayload } from '@/types/auth-payload';
 import { queryClient } from '@/lib/queryClient';
 
 // ========== 類型定義 ==========
@@ -21,7 +22,8 @@ export interface RegisterData {
   password: string;
   firstName?: string;
   lastName?: string;
-  role?: 'client' | 'coach' | 'both' | 'admin';
+  role?: 'client' | 'coach' | 'admin';
+  coachRef?: string | null;
 }
 
 export interface VerifyEmailData {
@@ -33,7 +35,14 @@ export interface ResendVerificationData {
 }
 
 export interface SelectRoleData {
-  role: 'client' | 'coach' | 'both' | 'admin';
+  role: 'client' | 'coach' | 'admin';
+}
+
+export interface ApplyCoachRefResponse {
+  success: boolean;
+  linked: boolean;
+  alreadyLinked?: boolean;
+  coachId?: string;
 }
 
 // ========== API 方法 ==========
@@ -46,24 +55,24 @@ export const authService = {
   /**
    * 用戶登入
    */
-  async login(credentials: LoginCredentials): Promise<AuthResponse> {
-    const response = await apiClient.post<AuthResponse>('/api/auth/login', credentials);
+  async login(credentials: LoginCredentials): Promise<AuthApiResponse> {
+    const response = await apiClient.post<AuthApiResponse>('/api/auth/login', credentials);
     return response.data;
   },
 
   /**
    * 用戶註冊
    */
-  async register(data: RegisterData): Promise<AuthResponse> {
-    const response = await apiClient.post<AuthResponse>('/api/auth/register', data);
+  async register(data: RegisterData): Promise<AuthApiResponse> {
+    const response = await apiClient.post<AuthApiResponse>('/api/auth/register', data);
     return response.data;
   },
 
   /**
    * 獲取當前用戶信息
    */
-  async getMe(): Promise<AuthResponse['user']> {
-    const response = await apiClient.get<AuthResponse['user']>('/api/auth/me');
+  async getMe(): Promise<MePayload> {
+    const response = await apiClient.get<MePayload>('/api/auth/me');
     return response.data;
   },
 
@@ -80,8 +89,8 @@ export const authService = {
   /**
    * 選擇用戶角色
    */
-  async selectRole(role: SelectRoleData['role']): Promise<AuthResponse> {
-    const response = await apiClient.post<AuthResponse>('/api/auth/role-select', { role });
+  async selectRole(role: SelectRoleData['role']): Promise<AuthApiResponse> {
+    const response = await apiClient.post<AuthApiResponse>('/api/auth/role-select', { role });
     return response.data;
   },
 
@@ -113,6 +122,13 @@ export const authService = {
     const response = await apiClient.get<{ verified: boolean }>(
       `/api/v1/auth/check-verification?email=${encodeURIComponent(email)}`
     );
+    return response.data;
+  },
+
+  async applyCoachRef(coachRef: string): Promise<ApplyCoachRefResponse> {
+    const response = await apiClient.post<ApplyCoachRefResponse>('/api/auth/apply-coach-ref', {
+      coachRef,
+    });
     return response.data;
   },
 
@@ -156,6 +172,15 @@ export function useRegister() {
     mutationFn: (data: RegisterData) => authService.register(data),
     onError: (error: any) => {
       console.error('Registration error:', error);
+      
+      // 處理用戶已存在的情況
+      if (error?.response?.status === 409 || error?.response?.data?.error === 'USER_ALREADY_EXISTS') {
+        console.log('[useRegister] User already exists, redirecting to /login');
+        // 顯示錯誤訊息後重定向到登入頁面
+        setTimeout(() => {
+          window.location.replace('/login');
+        }, 1000);
+      }
     },
   });
 }

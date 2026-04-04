@@ -107,19 +107,12 @@ export const config = {
     credentials: true,
   },
 
-  // ========== SMTP / SendGrid 配置 ==========
+  // ========== Email (Resend) 配置 ==========
   email: {
-    sendgridApiKey: getEnv('SENDGRID_API_KEY', ''),
-    sendgridFromEmail: getEnv('SENDGRID_FROM_EMAIL', 'noreply@fitbuddy.hk'),
-    sendgridReplyTo: getEnv('SENDGRID_REPLY_TO', ''),
-    sendgridSupportEmail: getEnv('SENDGRID_SUPPORT_EMAIL', 'support@fitbuddy.hk'),
-    sendgridTemplateId: getEnv('SENDGRID_TEMPLATE_ID', ''),
-    
-    // SMTP 配置（如果使用傳統 SMTP）
-    smtpHost: getEnv('SMTP_HOST', ''),
-    smtpPort: parseInt(getEnv('SMTP_PORT', '587'), 10),
-    smtpUser: getEnv('SMTP_USER', ''),
-    smtpPassword: getEnv('SMTP_PASSWORD', ''),
+    resendApiKey: getEnv('RESEND_API_KEY', ''),
+    fromEmail: getEnv('EMAIL_FROM', 'onboarding@resend.dev'),
+    replyTo: getEnv('EMAIL_REPLY_TO', ''),
+    supportEmail: getEnv('EMAIL_SUPPORT', 'support@fitbuddy.hk'),
   },
 };
 
@@ -161,10 +154,9 @@ export function validateConfig(): void {
       errors.push('GOOGLE_CLIENT_SECRET is required in production (if using Google OAuth)');
     }
 
-    // Email 配置（如果使用郵件功能）
-    // 注意：如果應用不使用郵件功能，可以跳過這些檢查
-    if (!config.email.sendgridApiKey) {
-      console.warn('⚠️  SENDGRID_API_KEY is not set - email functionality will be disabled');
+    // Email 配置（Resend）
+    if (!config.email.resendApiKey) {
+      console.warn('⚠️  RESEND_API_KEY is not set - email functionality will be disabled');
     }
   } else {
     // 開發環境警告
@@ -220,8 +212,8 @@ export function getConfigSummary(): Record<string, any> {
       secret: config.session.secret ? '***SET***' : 'NOT SET',
     },
     email: {
-      sendgridApiKey: config.email.sendgridApiKey ? '***SET***' : 'NOT SET',
-      sendgridFromEmail: config.email.sendgridFromEmail,
+      resendApiKey: config.email.resendApiKey ? '***SET***' : 'NOT SET',
+      fromEmail: config.email.fromEmail,
     },
   };
 }

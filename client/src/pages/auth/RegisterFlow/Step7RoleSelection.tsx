@@ -22,6 +22,8 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { useLocation } from 'wouter';
+import { isCoachRole } from '@/utils/role';
+import { regPrimaryButtonClass, regStepSubtitleClass, regStepTitleClass } from './register-ui';
 
 // ========== 類型定義 ==========
 
@@ -88,10 +90,17 @@ export default function Step7RoleSelection({
       return;
     }
 
-    setIsSubmitting(true);
+    // 若由 RegisterFlow 包裝（onComplete 存在），直接委派；
+    // RegisterFlow.handleComplete 會自行處理 TDEE + role-select，
+    // 不可在此再呼叫 selectRole，否則會在無 token 時觸發 401。
+    if (onComplete) {
+      onComplete();
+      return;
+    }
 
+    // 獨立使用（無 RegisterFlow 包裝）：自行呼叫 selectRole API
+    setIsSubmitting(true);
     try {
-      // 調用 selectRole API
       await selectRole(selectedRole);
 
       toast({
@@ -99,13 +108,7 @@ export default function Step7RoleSelection({
         description: `您已成功註冊為 ${selectedRole === 'client' ? '客戶' : selectedRole === 'coach' ? '教練' : selectedRole === 'both' ? '客戶與教練' : '管理員'}`,
       });
 
-      // 調用 onComplete 回調（如果提供）
-      if (onComplete) {
-        onComplete();
-      } else {
-        // 默認行為：重定向到 Dashboard
-        setLocation('/dashboard');
-      }
+      setLocation(isCoachRole(selectedRole) ? '/coach-dashboard' : '/client-dashboard');
     } catch (error: any) {
       const errorMessage = 
         error?.response?.data?.error || 
@@ -126,13 +129,9 @@ export default function Step7RoleSelection({
   return (
     <div className="w-full space-y-8">
       {/* 標題 */}
-      <div className="text-center space-y-2">
-        <h2 className="text-2xl md:text-3xl font-bold text-white">
-          選擇您的角色
-        </h2>
-        <p className="text-gray-400 text-sm md:text-base">
-          請選擇您的角色以完成註冊
-        </p>
+      <div>
+        <h2 className={`${regStepTitleClass} md:text-4xl`}>選擇您的角色</h2>
+        <p className={regStepSubtitleClass}>步驟 7/7：請選擇您的角色以完成註冊</p>
       </div>
 
       {/* 角色選擇選項 */}
@@ -151,9 +150,9 @@ export default function Step7RoleSelection({
             />
             <Label
               htmlFor="role-client"
-              className="flex items-center gap-4 p-4 border-2 border-gray-700 rounded-lg cursor-pointer hover:border-emerald-500/50 transition-all duration-200 peer-data-[state=checked]:border-emerald-500 peer-data-[state=checked]:bg-emerald-500/10"
+              className="flex items-center gap-4 p-4 border-2 border-gray-700 rounded-lg cursor-pointer hover:border-blue-500/50 transition-all duration-200 peer-data-[state=checked]:border-blue-600 peer-data-[state=checked]:bg-blue-600/10"
             >
-              <div className="flex items-center justify-center w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400">
+              <div className="flex items-center justify-center w-12 h-12 rounded-full bg-blue-600/20 text-blue-400">
                 <User className="w-6 h-6" />
               </div>
               <div className="flex-1">
@@ -174,9 +173,9 @@ export default function Step7RoleSelection({
             />
             <Label
               htmlFor="role-coach"
-              className="flex items-center gap-4 p-4 border-2 border-gray-700 rounded-lg cursor-pointer hover:border-emerald-500/50 transition-all duration-200 peer-data-[state=checked]:border-emerald-500 peer-data-[state=checked]:bg-emerald-500/10"
+              className="flex items-center gap-4 p-4 border-2 border-gray-700 rounded-lg cursor-pointer hover:border-blue-500/50 transition-all duration-200 peer-data-[state=checked]:border-blue-600 peer-data-[state=checked]:bg-blue-600/10"
             >
-              <div className="flex items-center justify-center w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400">
+              <div className="flex items-center justify-center w-12 h-12 rounded-full bg-blue-600/20 text-blue-400">
                 <Shield className="w-6 h-6" />
               </div>
               <div className="flex-1">
@@ -197,9 +196,9 @@ export default function Step7RoleSelection({
             />
             <Label
               htmlFor="role-both"
-              className="flex items-center gap-4 p-4 border-2 border-gray-700 rounded-lg cursor-pointer hover:border-emerald-500/50 transition-all duration-200 peer-data-[state=checked]:border-emerald-500 peer-data-[state=checked]:bg-emerald-500/10"
+              className="flex items-center gap-4 p-4 border-2 border-gray-700 rounded-lg cursor-pointer hover:border-blue-500/50 transition-all duration-200 peer-data-[state=checked]:border-blue-600 peer-data-[state=checked]:bg-blue-600/10"
             >
-              <div className="flex items-center justify-center w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400">
+              <div className="flex items-center justify-center w-12 h-12 rounded-full bg-blue-600/20 text-blue-400">
                 <Users className="w-6 h-6" />
               </div>
               <div className="flex-1">
@@ -222,7 +221,7 @@ export default function Step7RoleSelection({
       <Button
         onClick={handleComplete}
         disabled={!selectedRole || isSubmitting}
-        className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-semibold px-6 py-6 text-base rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-slate-950 shadow-lg hover:shadow-emerald-500/50 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
+        className={regPrimaryButtonClass}
         aria-label="完成註冊"
       >
         {isSubmitting ? '處理中...' : '完成註冊'}

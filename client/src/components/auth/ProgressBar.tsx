@@ -88,27 +88,23 @@ function ProgressBar({
       {/* 文字信息區域 */}
       {(showStepText || showPercentage) && (
         <div className="flex items-center justify-between text-sm">
-          {/* 步驟文字 */}
           {showStepText && (
-            <span className="text-gray-400 font-medium">
-              步驟 {clampedStep} / {totalSteps}
+            <span className="text-sm text-neutral-400 font-mono">
+              Step {clampedStep} of {totalSteps}
             </span>
           )}
 
-          {/* 百分比文字 */}
           {showPercentage && (
-            <span className="text-gray-400 font-medium">
+            <span className="text-sm text-neutral-400 font-mono">
               {Math.round(percentage)}%
             </span>
           )}
         </div>
       )}
 
-      {/* 進度條容器 */}
-      <div className="w-full h-1 bg-slate-700 rounded-full overflow-hidden">
-        {/* 進度填充 */}
+      <div className="w-full h-2 bg-neutral-800 rounded-full overflow-hidden">
         <div
-          className="h-full bg-emerald-500 rounded-full transition-all duration-300 ease-out"
+          className="h-full bg-blue-600 rounded-full transition-all duration-300 ease-in-out"
           style={{ width: `${percentage}%` }}
           role="progressbar"
           aria-valuenow={clampedStep}

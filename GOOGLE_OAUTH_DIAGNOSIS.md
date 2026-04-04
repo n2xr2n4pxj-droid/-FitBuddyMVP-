@@ -1,128 +1,127 @@
-# Google OAuth 登錄問題診斷報告
+# Google OAuth 流程診斷報告
 
-## 已修復的問題
+## 1. 後端 - server/routes/auth.ts
 
-### 1. ✅ Token Exchange 格式錯誤（關鍵問題）
-**問題：** Google OAuth token endpoint 要求使用 `application/x-www-form-urlencoded` 格式，但代碼使用了 JSON 格式。
+### 回調端點
+- **完整路徑**: `POST /api/auth/google/callback`
+- **檔案**: `server/routes/auth.ts`（非 server/src/）
+- **路由註冊**: `app.use("/api", authRoutes)` → 完整 URL 為 `/api/auth/google/callback`
 
-**修復：** 已將 token exchange 請求格式改為 `application/x-www-form-urlencoded`：
+### 處理流程 ✓
 
-```typescript
-// 修復前（錯誤）：
-headers: { 'Content-Type': 'application/json' },
-body: JSON.stringify({ ... })
+| 步驟 | 狀態 | 說明 |
+|------|------|------|
+| 接收參數 | ✓ | 接收 `{ code, clientId, flow }`（authorization code 流程） |
+| 交換 Google Token | ✓ | 使用 `code` 向 `https://oauth2.googleapis.com/token` 換取 access_token |
+| 取得用戶資訊 | ✓ | 用 access_token 呼叫 `https://www.googleapis.com/oauth2/v2/userinfo` |
+| 建立/查找用戶 | ✓ | 新用戶建立紀錄，現有用戶更新頭像等 |
+| 生成 JWT | ✓ | `generateAccessToken()` + `generateRefreshToken()` |
+| 返回響應 | ✓ | 見下方格式 |
 
-// 修復後（正確）：
-headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-body: params.toString() // URLSearchParams
+### 後端返回格式
+
+```json
+{
+  "success": true,
+  "message": "Google authentication successful",
+  "token": "jwt-access-token-here",
+  "refreshToken": "jwt-refresh-token-here",
+  "isNewUser": false,
+  "flow": "login",
+  "user": {
+    "id": "uuid",
+    "email": "user@example.com",
+    "firstName": "...",
+    "lastName": "...",
+    "avatar": "...",
+    "role": "COACH",
+    "emailVerified": true,
+    "createdAt": "..."
+  }
+}
 ```
 
-**位置：** `server/routes/auth.ts` 第 983-996 行
+**重點**: 使用 `token` 欄位（非 `accessToken`），前端已支援兩者。
 
-### 2. ✅ 增強錯誤日誌
-**修復：** 添加了更詳細的錯誤日誌，包括：
-- 配置檢查（clientId, clientSecret, redirectUri 是否存在）
-- Token exchange 參數日誌
-- 更詳細的錯誤響應處理
+---
 
-## 需要確認的配置
+## 2. 前端 - Google 登入按鈕
 
-### 3. ⚠️ Redirect URI 配置（需要驗證）
+### 組件位置
+- **主組件**: `client/src/components/GoogleLoginButton.tsx`
+- **登入頁**: `client/src/pages/auth/LoginPage.tsx` 使用 `<GoogleLoginButton flow="login" />`
+- **註冊頁**: `client/src/pages/auth/RegisterFlow/Step2EmailPassword.tsx` 使用 `<GoogleLoginButton flow="register" />`
+- **備用**: `client/src/pages/auth-login.tsx` 使用 `<GoogleLoginButton />`（預設 flow="login"）
 
-**當前環境變數設置：**
-```
-GOOGLE_CALLBACK_URL=http://localhost:3000/auth/callback
-```
+### 處理流程 ✓
 
-**問題：** `@react-oauth/google` 的 `useGoogleLogin` 在 `flow: 'auth-code'` 模式下：
-- 默認使用當前頁面的 **origin** 作為 redirect_uri
-- 對於 `http://localhost:5173`，redirect_uri 應該是 `http://localhost:5173`
-- **不包含路徑**（如 `/auth/callback`）
+| 步驟 | 狀態 | 說明 |
+|------|------|------|
+| 觸發 Google 登入 | ✓ | `useGoogleLogin({ flow: 'auth-code' })` 取得 authorization code |
+| 發送給後端 | ✓ | `fetch('/api/auth/google/callback', { method: 'POST', body: { code, clientId, flow } })` |
+| 提取 token | ✓ | `data.accessToken || data.token`（支援兩種欄位名） |
+| 保存 token | ✓ | `tokenManager.setAccessToken(accessToken)` |
+| localStorage 鍵名 | ✓ | `fitbuddy_access_token`（tokenManager）、`fitbuddy_refresh_token` |
 
-**需要檢查：**
-1. 在 Google Cloud Console 中，授權重定向 URI 必須包含：
-   - `http://localhost:5173`（開發環境）
-   - 生產環境的 URL（如 `https://yourdomain.com`）
+### Token 保存方式
 
-2. 環境變數 `GOOGLE_CALLBACK_URL` 應該設置為：
-   ```
-   GOOGLE_CALLBACK_URL=http://localhost:5173
-   ```
-   而不是 `http://localhost:3000/auth/callback`
+```javascript
+// ✅ 正確：使用 tokenManager（api-client 會讀取）
+tokenManager.setAccessToken(accessToken);
+tokenManager.setRefreshToken(refreshToken);
 
-**驗證步驟：**
-1. 檢查 Google Cloud Console → API & Services → Credentials
-2. 確認 OAuth 2.0 Client ID 的「授權的重新導向 URI」中包含：
-   - `http://localhost:5173`（開發環境）
-   - 生產環境 URL（如果已部署）
-
-### 4. ⚠️ 環境變數配置
-
-**需要的環境變數（server/.env.local）：**
-```env
-GOOGLE_CLIENT_ID=your-client-id
-GOOGLE_CLIENT_SECRET=your-client-secret
-GOOGLE_CALLBACK_URL=http://localhost:5173  # ← 應該是前端 URL
-CLIENT_URL=http://localhost:5173  # 可選，作為後備
+// 向後兼容（非主要讀取來源）
+localStorage.setItem('accessToken', accessToken);
+localStorage.setItem('refreshToken', refreshToken);
 ```
 
-**前端環境變數（client/.env 或 .env.local）：**
-```env
-VITE_GOOGLE_CLIENT_ID=your-client-id  # 必須與後端的 GOOGLE_CLIENT_ID 相同
+**重點**: 未使用 `localStorage.setItem('token', token)`，而是 `tokenManager.setAccessToken()`，會存到 `fitbuddy_access_token`。api-client 的攔截器會從這裡讀取，行為正確。
+
+---
+
+## 3. Google OAuth Library
+
+| 項目 | 值 |
+|------|-----|
+| **套件** | `@react-oauth/google` (v0.13.4) |
+| **Provider** | `GoogleOAuthProvider` 包在 `main.tsx` 的 App 外層 |
+| **Hook** | `useGoogleLogin`，`flow: 'auth-code'` |
+| **回調** | `onSuccess: (codeResponse) => { ... }`，取得 `codeResponse.code` |
+| **IdToken 處理** | 使用 **authorization code** 流程，非 implicit/id_token；code 送後端由後端向 Google 換 token |
+| **發送給後端** | ✓ 正確：只送 `code`，由後端完成 token 交換與驗證 |
+
+---
+
+## 4. 流程總覽
+
+```
+前端 (GoogleLoginButton)
+  → useGoogleLogin(flow: 'auth-code')
+  → onSuccess 取得 code
+  → POST /api/auth/google/callback { code, clientId, flow }
+  → 後端用 code 向 Google 換 token
+  → 後端建立/查找用戶
+  → 後端生成 JWT (token + refreshToken)
+  → 返回 { token, refreshToken, user, isNewUser, flow }
+
+前端
+  → 取得 data.token
+  → tokenManager.setAccessToken(data.token)
+  → tokenManager.setRefreshToken(data.refreshToken)
+  → setUser(data.user)
+  → 依 role 導向 /coach-dashboard 或 /client-dashboard
 ```
 
-## 已檢查的其他項目
+---
 
-### 5. ✅ CORS 配置
-**狀態：** 已正確配置
-- 後端允許 `http://localhost:5173` 的請求
-- 設置了 `credentials: true`
+## 5. 結論
 
-**位置：** `server/index.ts` 第 25-28 行
+| 檢查項目 | 結果 |
+|----------|------|
+| Google OAuth 回調端點 | `POST /api/auth/google/callback` |
+| 後端返回格式 | `{ token, refreshToken, user, isNewUser, flow }` |
+| 前端 token 提取 | ✓ `data.accessToken \|\| data.token` |
+| 前端 token 保存 | ✓ `tokenManager.setAccessToken()` → `fitbuddy_access_token` |
+| localStorage 鍵名 | ✓ `fitbuddy_access_token`（api-client 預期） |
 
-### 6. ✅ 前端代碼傳送 Code
-**狀態：** 正確
-- `GoogleLoginButton` 組件正確使用 `useGoogleLogin`
-- 正確將 `code` 傳送給後端 `/api/auth/google/callback`
-
-**位置：** `client/src/components/GoogleLoginButton.tsx` 第 27-37 行
-
-## 建議的修復步驟
-
-1. **更新環境變數：**
-   ```bash
-   # 編輯 server/.env.local
-   GOOGLE_CALLBACK_URL=http://localhost:5173  # 改為前端 URL
-   ```
-
-2. **更新 Google Cloud Console：**
-   - 登入 Google Cloud Console
-   - 前往 API & Services → Credentials
-   - 編輯您的 OAuth 2.0 Client ID
-   - 在「授權的重新導向 URI」中添加：`http://localhost:5173`
-   - 保存更改
-
-3. **測試：**
-   - 重啟後端服務器
-   - 清除瀏覽器緩存
-   - 嘗試 Google 登錄
-   - 檢查服務器日誌以確認配置正確
-
-## 調試建議
-
-如果問題仍然存在，檢查以下日誌：
-
-1. **後端日誌：**
-   - `[POST /auth/google/callback] Config:` - 檢查配置是否正確加載
-   - `[POST /auth/google/callback] Token exchange params:` - 檢查發送的參數
-   - `[POST /auth/google/callback] ❌ Token exchange failed:` - 查看 Google 返回的錯誤
-
-2. **前端控制台：**
-   - `[GoogleLoginButton] Authorization code received` - 確認收到 code
-   - `[GoogleLoginButton] Error:` - 查看錯誤信息
-
-3. **Google Cloud Console：**
-   - 檢查 OAuth 同意屏幕是否已發布（或添加測試用戶）
-   - 確認 Client ID 和 Secret 正確
-   - 確認 Redirect URI 完全匹配（包括協議、域名、端口）
-
+**Google OAuth 流程本身設計正確。** 若登入後出現 401，多半與「註冊未完成」有關（`/api/auth/me` 因 `registrationComplete: false` 回 401），而非 OAuth 或 token 保存問題。

@@ -1,40 +1,13 @@
 import axios, { AxiosInstance, AxiosError, AxiosResponse } from 'axios';
 import { logger } from './logger';
 import { offlineManager } from './offline-manager';
+import type {
+  AuthApiResponse,
+  MePayload,
+} from '@/types/auth-payload';
 
 // ========== 類型定義 ==========
-export interface AuthResponse {
-  success?: boolean;
-  message?: string;
-  needsVerification?: boolean; // 郵箱驗證標記
-  error?: string; // 錯誤訊息
-  user?: {
-    id: string;
-    email: string;
-    firstName: string | null;
-    lastName: string | null;
-    avatar: string | null;
-    role: 'client' | 'coach' | 'admin' | 'both';
-    createdAt: string | null;
-  };
-  token?: string;
-  refreshToken?: string; // ✨ 企業級：新增
-  data?: {
-    needsVerification?: boolean;
-    error?: string;
-    user?: {
-      id: string;
-      email: string;
-      firstName: string | null;
-      lastName: string | null;
-      avatar: string | null;
-      role: 'client' | 'coach' | 'admin' | 'both';
-      createdAt: string | null;
-    };
-    token?: string;
-    refreshToken?: string;
-  };
-}
+export type AuthResponse = AuthApiResponse;
 
 export interface RefreshTokenResponse {
   success?: boolean;
@@ -47,6 +20,9 @@ export interface ApiErrorResponse {
   error?: string;
   message?: string;
 }
+
+/** GET /api/auth/me 回傳格式（含註冊狀態） */
+export type MeResponse = MePayload;
 
 // Logger 已從 './logger' 導入
 
@@ -83,9 +59,30 @@ export const tokenManager = {
   },
 };
 
+// ========== Base URL 正規化 ==========
+// VITE_API_BASE_URL 可能是：(1) 完整 server URL (2) 相對路徑如 /api (3) 未設置
+// 若為相對路徑或未設置，使用 origin 或 fallback，避免拼出 /api/api/... 錯誤
+const DEFAULT_ORIGIN = 'http://localhost:3000';
+
+function getApiBaseURL(): string {
+  const raw = import.meta.env.VITE_API_BASE_URL;
+  if (!raw || typeof raw !== 'string' || raw.trim() === '') {
+    return DEFAULT_ORIGIN;
+  }
+  const trimmed = raw.trim();
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed.replace(/\/$/, '');
+  }
+  // 相對路徑（如 /api）→ 使用當前頁面 origin，避免 /api + /api/auth/refresh = /api/api/auth/refresh
+  if (typeof window !== 'undefined') {
+    return window.location.origin;
+  }
+  return DEFAULT_ORIGIN;
+}
+
 // ========== Axios 實例 ==========
 export const apiClient: AxiosInstance = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000',
+  baseURL: getApiBaseURL(),
   headers: {
     'Content-Type': 'application/json',
   },
@@ -134,17 +131,24 @@ const shouldRetry = (error: any, retryCount: number, config: RetryConfig) => {
   return retryCount < config.maxRetries;
 };
 
+/** 註冊前公開查詢，不應帶過期 access 或觸發 refresh（避免未登入／註冊頁被導去 /login） */
+function isPublicUsernameCheckRequest(config: { url?: string }): boolean {
+  const u = config.url ?? "";
+  return u.includes("/api/v1/users/check-username");
+}
+
 // ========== 請求攔截器 ==========
 apiClient.interceptors.request.use(
   async (config) => {
+    const publicUsernameCheck = isPublicUsernameCheckRequest(config);
+
     // ✨ 企業級：在發送請求前檢查 token 是否即將過期
-    if (tokenManager.isAccessTokenExpired()) {
+    if (!publicUsernameCheck && tokenManager.isAccessTokenExpired()) {
       const refreshToken = tokenManager.getRefreshToken();
       if (refreshToken) {
         try {
-          const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
           const response = await axios.post<RefreshTokenResponse>(
-            `${baseURL}/api/auth/refresh`,
+            `${getApiBaseURL()}/api/auth/refresh`,
             { refreshToken }
           );
           tokenManager.setAccessToken(response.data.token);
@@ -162,10 +166,12 @@ apiClient.interceptors.request.use(
       }
     }
 
-    // 添加 Authorization header
-    const token = tokenManager.getAccessToken();
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+    // 添加 Authorization header（公開 check-username 不附帶 token）
+    if (!publicUsernameCheck) {
+      const token = tokenManager.getAccessToken();
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
     }
 
     // ✨ 企業級：添加請求 ID 用於追蹤
@@ -197,6 +203,7 @@ apiClient.interceptors.response.use(
       error.response?.status === 401 &&
       !originalRequest.url?.includes('/auth/login') &&
       !originalRequest.url?.includes('/auth/refresh') &&
+      !isPublicUsernameCheckRequest(originalRequest) &&
       !originalRequest._retry
     ) {
       originalRequest._retry = true;
@@ -211,9 +218,8 @@ apiClient.interceptors.response.use(
           }
 
           // 調用 refresh 端點
-          const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
           const response = await axios.post<RefreshTokenResponse>(
-            `${baseURL}/api/auth/refresh`,
+            `${getApiBaseURL()}/api/auth/refresh`,
             { refreshToken }
           );
 
@@ -364,19 +370,26 @@ export const api = {
       });
     },
 
-    register: (email: string, password: string, firstName?: string, lastName?: string) =>
+    register: (
+      email: string,
+      password: string,
+      firstName?: string,
+      lastName?: string,
+      coachRef?: string | null
+    ) =>
       apiClient.post<AuthResponse>('/api/auth/register', {
         email,
         password,
         firstName,
         lastName,
+        coachRef,
       }),
 
     selectRole: (role: 'client' | 'coach' | 'both' | 'admin') =>
       apiClient.post<AuthResponse>('/api/auth/role-select', { role }),
 
     me: () =>
-      apiClient.get<AuthResponse['user']>('/api/auth/me'),
+      apiClient.get<MeResponse>('/api/auth/me'),
 
     // ✨ 企業級：刷新 token
     refresh: (refreshToken: string) =>

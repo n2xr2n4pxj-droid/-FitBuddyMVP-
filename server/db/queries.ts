@@ -3,35 +3,39 @@ import { users } from './schema';
 import { eq, inArray, sql } from 'drizzle-orm';
 
 // 將輸入角色標準化為資料庫儲存格式（大寫，匹配 roleEnum）
-const normalizeRoleInput = (role?: string | null): "USER" | "COACH" | "BOTH" | "ADMIN" => {
+const normalizeRoleInput = (role?: string | null): "USER" | "COACH" | "ADMIN" => {
   if (!role) return 'USER';
   const r = role.toString().toUpperCase();
   // 支援舊的小寫值轉換
   if (r === 'CLIENT') return 'USER';
-  if (r === 'USER' || r === 'COACH' || r === 'BOTH' || r === 'ADMIN') {
-    return r as "USER" | "COACH" | "BOTH" | "ADMIN";
+  if (r === 'USER' || r === 'COACH' || r === 'ADMIN') {
+    return r as "USER" | "COACH" | "ADMIN";
+  }
+  // 舊資料兼容：BOTH 已廢棄，統一提升為 COACH
+  if (r === 'BOTH') {
+    return 'COACH';
   }
   return 'USER';
 };
 
 // 將資料庫角色標準化為業務判斷格式（大寫）
-const normalizeRoleValue = (role?: string | null): 'USER' | 'COACH' | 'BOTH' | 'ADMIN' | null => {
+const normalizeRoleValue = (role?: string | null): 'USER' | 'COACH' | 'ADMIN' | null => {
   if (!role) return null;
   const r = role.toString().toUpperCase();
   if (r === 'CLIENT') return 'USER';
-  if (r === 'USER' || r === 'COACH' || r === 'BOTH' || r === 'ADMIN') {
-    return r as 'USER' | 'COACH' | 'BOTH' | 'ADMIN';
+  if (r === 'USER' || r === 'COACH' || r === 'ADMIN') {
+    return r as 'USER' | 'COACH' | 'ADMIN';
+  }
+  // 舊資料兼容：BOTH 已廢棄，統一提升為 COACH
+  if (r === 'BOTH') {
+    return 'COACH';
   }
   return null;
 };
 
-// 按 ID 獲取用戶
+// 按 ID 獲取用戶（使用 UUID / varchar）
 export async function getUserById(userId: string | number) {
-  const userIdNum = typeof userId === 'number' ? userId : parseInt(userId, 10);
-  if (isNaN(userIdNum)) {
-    return null;
-  }
-
+  const queryId = String(userId);
   const rows = await db
     .select({
       id: users.id,
@@ -44,7 +48,7 @@ export async function getUserById(userId: string | number) {
       // 使用 avatar 字段，包含 createdAt
     })
     .from(users)
-    .where(eq(users.id, userIdNum))
+    .where(eq(users.id, queryId))
     .limit(1);
 
   return rows.length > 0 ? rows[0] : null;
@@ -71,12 +75,9 @@ export async function getUserByEmail(email: string) {
   return rows.length > 0 ? rows[0] : null;
 }
 
-// 更新用戶角色
+// 更新用戶角色（UUID / varchar）
 export async function updateUserRole(userId: string, role: string) {
-  const userIdNum = typeof userId === 'number' ? userId : parseInt(userId, 10);
-  if (isNaN(userIdNum)) {
-    return null;
-  }
+  const queryId = String(userId);
   const normalizedRole = normalizeRoleInput(role);
   const rows = await db
     .update(users)
@@ -84,7 +85,7 @@ export async function updateUserRole(userId: string, role: string) {
       role: normalizedRole,
       updatedAt: sql`NOW()`,
     })
-    .where(eq(users.id, userIdNum))
+    .where(eq(users.id, queryId))
     .returning({
       id: users.id,
       email: users.email,
@@ -102,7 +103,7 @@ export async function isUserCoach(userId: string): Promise<boolean> {
   const user = await getUserById(userId);
   if (!user) return false;
   const role = normalizeRoleValue(user.role);
-  return role === 'COACH' || role === 'BOTH';
+  return role === 'COACH';
 }
 
 // 驗證用戶是否為客戶
@@ -110,13 +111,14 @@ export async function isUserClient(userId: string): Promise<boolean> {
   const user = await getUserById(userId);
   if (!user) return false;
   const role = normalizeRoleValue(user.role);
-  return role === 'USER' || role === 'BOTH';
+  return role === 'USER';
 }
 
 // 創建新用戶
 export async function createUser(data: {
   email: string;
   passwordHash: string;
+  username?: string | null;
   firstName?: string;
   lastName?: string;
   role?: string; // 接受任何字符串，內部會標準化
@@ -125,14 +127,19 @@ export async function createUser(data: {
   emailVerificationExpires?: number | null; // BIGINT 時間戳（毫秒）
 }) {
   const normalizedEmail = data.email.trim().toLowerCase();
+  const usernameTrimmed =
+    typeof data.username === "string" && data.username.trim()
+      ? data.username.trim()
+      : null;
   const rows = await db
     .insert(users)
     .values({
       email: normalizedEmail,
       passwordHash: data.passwordHash,
+      username: usernameTrimmed,
       firstName: data.firstName || null,
       lastName: data.lastName || null,
-      role: normalizeRoleInput(data.role) as "USER" | "COACH" | "BOTH" | "ADMIN",
+      role: normalizeRoleInput(data.role) as "USER" | "COACH" | "ADMIN",
       emailVerificationToken: data.emailVerificationToken || null,
       emailVerified: data.emailVerified !== undefined ? data.emailVerified : false,
       emailVerificationExpires: data.emailVerificationExpires || null,
@@ -150,8 +157,8 @@ export async function createUser(data: {
   return rows.length > 0 ? rows[0] : null;
 }
 
-// 依角色列表獲取用戶（支持 USER / COACH / BOTH / ADMIN）
-export async function getUsersByRoles(roles: Array<'USER' | 'COACH' | 'BOTH' | 'ADMIN'>) {
+// 依角色列表獲取用戶（支持 USER / COACH / ADMIN）
+export async function getUsersByRoles(roles: Array<'USER' | 'COACH' | 'ADMIN'>) {
   // 使用 inArray 來匹配角色
   return db
     .select()
@@ -159,8 +166,8 @@ export async function getUsersByRoles(roles: Array<'USER' | 'COACH' | 'BOTH' | '
     .where(inArray(users.role, roles));
 }
 
-// 取得教練列表（包含 both 視為教練）
+// 取得教練列表
 export async function getAllCoaches() {
-  return getUsersByRoles(['COACH', 'BOTH']);
+  return getUsersByRoles(['COACH']);
 }
 

@@ -16,11 +16,13 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Eye, EyeOff } from 'lucide-react';
+import { AiFillApple } from 'react-icons/ai';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import GoogleLoginButton from '@/components/GoogleLoginButton';
+import { regInputClass, regPrimaryButtonClass, regStepSubtitleClass, regStepTitleClass } from './register-ui';
 
 // ========== 類型定義 ==========
 
@@ -164,9 +166,9 @@ export default function Step2EmailPassword({
   return (
     <div className="w-full space-y-6">
       {/* 標題區域 */}
-      <div className="text-center space-y-2">
-        <h2 className="text-3xl font-bold text-white">建立你的帳號</h2>
-        <p className="text-lg text-gray-400">步驟 2/6: 郵箱和密碼</p>
+      <div>
+        <h2 className={regStepTitleClass}>建立你的帳號</h2>
+        <p className={regStepSubtitleClass}>步驟 2/7：郵箱和密碼</p>
       </div>
 
       {/* 表單 */}
@@ -180,7 +182,7 @@ export default function Step2EmailPassword({
             id="email"
             type="email"
             placeholder="example@gmail.com"
-            className={`bg-slate-900/50 border-gray-700 text-white placeholder:text-white/40 focus:border-emerald-500 focus:ring-emerald-500 ${
+            className={`${regInputClass} ${
               errors.email ? 'border-red-500 focus:border-red-500 focus:ring-red-500' : ''
             }`}
             {...register('email')}
@@ -206,7 +208,7 @@ export default function Step2EmailPassword({
               id="password"
               type={showPassword ? 'text' : 'password'}
               placeholder="最少 6 個字符"
-              className={`bg-slate-900/50 border-gray-700 text-white placeholder:text-white/40 focus:border-emerald-500 focus:ring-emerald-500 pr-10 ${
+              className={`${regInputClass} pr-10 ${
                 errors.password
                   ? 'border-red-500 focus:border-red-500 focus:ring-red-500'
                   : ''
@@ -219,7 +221,7 @@ export default function Step2EmailPassword({
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-white/60 hover:text-white/80 transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-slate-950 rounded-md p-1"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-white/60 hover:text-white/80 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 focus:ring-offset-neutral-950 rounded-md p-1"
               aria-label={showPassword ? '隱藏密碼' : '顯示密碼'}
             >
               {showPassword ? (
@@ -246,7 +248,7 @@ export default function Step2EmailPassword({
               id="agreeToTerms"
               checked={agreeToTerms}
               onCheckedChange={handleTermsChange}
-              className="mt-1 border-gray-700 data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500"
+              className="mt-1 border-neutral-700 data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600"
               aria-invalid={errors.agreeToTerms ? 'true' : 'false'}
               aria-describedby={errors.agreeToTerms ? 'terms-error' : undefined}
             />
@@ -260,7 +262,7 @@ export default function Step2EmailPassword({
                 href="/terms"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-emerald-500 hover:text-emerald-300 hover:underline font-semibold"
+                className="text-blue-400 hover:text-blue-300 hover:underline font-semibold"
                 onClick={(e) => e.stopPropagation()}
               >
                 使用條款
@@ -270,7 +272,7 @@ export default function Step2EmailPassword({
                 href="/privacy"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-emerald-500 hover:text-emerald-300 hover:underline font-semibold"
+                className="text-blue-400 hover:text-blue-300 hover:underline font-semibold"
                 onClick={(e) => e.stopPropagation()}
               >
                 隱私政策
@@ -288,7 +290,7 @@ export default function Step2EmailPassword({
         <Button
           type="submit"
           disabled={!isFormValid}
-            className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-semibold px-4 py-3 text-base rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-slate-950 shadow-lg hover:shadow-emerald-500/50 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-emerald-500"
+          className={regPrimaryButtonClass}
           aria-label="下一步"
           data-testid="button-next-step2"
         >
@@ -302,7 +304,7 @@ export default function Step2EmailPassword({
           <div className="w-full border-t border-white/20"></div>
         </div>
         <div className="relative flex justify-center text-sm">
-          <span className="px-4 bg-slate-950 text-white/60">或</span>
+          <span className="px-4 bg-neutral-900/80 text-neutral-500">或</span>
         </div>
       </div>
 
@@ -312,16 +314,21 @@ export default function Step2EmailPassword({
         <Button
           type="button"
           variant="outline"
+          disabled
           onClick={handleAppleSignUp}
-              className="w-full border-2 border-gray-700 hover:border-white/40 bg-transparent hover:bg-white/5 text-white font-semibold px-4 py-3 text-base rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-white/50 focus:ring-offset-2 focus:ring-offset-slate-950 active:scale-[0.98]"
+          className="w-full flex justify-center gap-3 px-4 py-2.5 border border-neutral-700 rounded-xl bg-neutral-900 text-white hover:bg-neutral-800 transition-colors opacity-40 cursor-not-allowed"
           aria-label="使用 Apple 繼續"
         >
-          🍎 Apple 繼續
+          <AiFillApple className="h-5 w-5 text-white" aria-hidden />
+          繼續使用 Apple（即將推出）
         </Button>
 
         {/* Google 登入 */}
         <div className="w-full">
-          <GoogleLoginButton />
+          <GoogleLoginButton
+            flow="register"
+            buttonClassName="w-full flex justify-center gap-3 px-4 py-2.5 border border-neutral-700 rounded-xl bg-neutral-900 text-white hover:bg-neutral-800 transition-colors"
+          />
         </div>
       </div>
     </div>

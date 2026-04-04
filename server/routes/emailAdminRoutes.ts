@@ -58,7 +58,7 @@ router.get("/health", (_req: Request, res: Response) => {
   res.json({
     status: "ok",
     timestamp: new Date().toISOString(),
-    sendgridConfigured: !!config.email.sendgridApiKey,
+    resendConfigured: !!config.email.resendApiKey,
   });
 });
 
@@ -71,12 +71,11 @@ router.get("/config", authMiddleware, requireAdmin, async (_req: Request, res: R
     res.json({
       success: true,
       data: {
-        fromEmail: config.email.sendgridFromEmail || 'noreply@fitbuddy.hk',
-        replyTo: config.email.sendgridReplyTo || config.email.sendgridSupportEmail || 'support@fitbuddy.hk',
-        supportEmail: config.email.sendgridSupportEmail || config.email.sendgridReplyTo || 'support@fitbuddy.hk',
+        fromEmail: config.email.fromEmail || 'onboarding@resend.dev',
+        replyTo: config.email.replyTo || config.email.supportEmail || 'support@fitbuddy.hk',
+        supportEmail: config.email.supportEmail || config.email.replyTo || 'support@fitbuddy.hk',
         appUrl: config.app.appUrl || config.app.clientUrl || 'http://localhost:5173',
-        sendgridConfigured: !!config.email.sendgridApiKey,
-        templateId: config.email.sendgridTemplateId || null,
+        resendConfigured: !!config.email.resendApiKey,
       }
     });
   } catch (error) {

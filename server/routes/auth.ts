@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { db, pool } from '../db';
-import { users } from '../db/schema';
-import { eq } from 'drizzle-orm';
+import { users, coachClients } from '../db/schema';
+import { and, eq } from 'drizzle-orm';
 import { hashPassword, verifyPassword, isAuthenticated, verifyJWT } from '../replitAuth';
 import jwt, { type SignOptions } from 'jsonwebtoken';
 import crypto from 'crypto';
@@ -12,6 +12,7 @@ import {
   createUser 
 } from '../db/queries';
 import emailService from '../services/emailService';
+import { sendEmail } from '../services/emailService';
 import { config } from '../config/env';
 
 const router = Router();
@@ -80,9 +81,9 @@ const generateRefreshToken = (userId: string) => {
 /**
  * 標準化角色為大寫值
  * - 支援舊系統 'coach' / 'client'
- * - 新系統使用 'USER' | 'COACH' | 'BOTH' | 'ADMIN'
+ * - 新系統使用 'USER' | 'COACH' | 'ADMIN'
  */
-function normalizeRoleToUpperCase(role?: string | null): 'USER' | 'COACH' | 'BOTH' | 'ADMIN' {
+function normalizeRoleToUpperCase(role?: string | null): 'USER' | 'COACH' | 'ADMIN' {
   if (!role) return 'USER';
 
   const r = role.toString().toUpperCase();
@@ -91,8 +92,12 @@ function normalizeRoleToUpperCase(role?: string | null): 'USER' | 'COACH' | 'BOT
   if (r === 'COACH') return 'COACH';
   if (r === 'CLIENT') return 'USER';
 
-  if (r === 'USER' || r === 'COACH' || r === 'BOTH' || r === 'ADMIN') {
-    return r as 'USER' | 'COACH' | 'BOTH' | 'ADMIN';
+  if (r === 'USER' || r === 'COACH' || r === 'ADMIN') {
+    return r as 'USER' | 'COACH' | 'ADMIN';
+  }
+  // 舊資料兼容：BOTH 已廢棄，統一提升為 COACH
+  if (r === 'BOTH') {
+    return 'COACH';
   }
 
   return 'USER';
@@ -102,7 +107,7 @@ function normalizeRoleToUpperCase(role?: string | null): 'USER' | 'COACH' | 'BOT
 function isValidRole(role: any): boolean {
   if (!role) return false;
   const r = role.toString().toLowerCase();
-  return ['client', 'coach', 'both', 'admin', 'user'].includes(r);
+  return ['client', 'coach', 'admin', 'user'].includes(r);
 }
 
 // ==========================================
@@ -110,9 +115,28 @@ function isValidRole(role: any): boolean {
 // ==========================================
 router.post('/auth/register',  async (req: any, res: any) => {
   try {
-    const { email, password, firstName, lastName, role } = req.body;
+    const { email, password, firstName, lastName, username, role, coachRef, coach_ref } =
+      req.body;
+    const coachRefToken = coachRef || coach_ref;
+    let referredCoachId: string | null = null;
 
-    console.log('[POST /auth/register]', { email, firstName, lastName, role });
+    const rawHandle =
+      typeof username === "string" && username.trim()
+        ? username.trim()
+        : typeof firstName === "string" && firstName.trim()
+          ? firstName.trim()
+          : null;
+    /** username 欄位存小寫，與 check-username 的 lower 比對一致，並避免大小寫重複 */
+    const usernameForDb = rawHandle ? rawHandle.toLowerCase() : null;
+
+    console.log('[POST /auth/register]', {
+      email,
+      username: usernameForDb,
+      firstName,
+      lastName,
+      role,
+      hasCoachRef: !!coachRefToken,
+    });
 
     if (!email || !password) {
       return res.status(400).json({ message: 'Email and password are required' });
@@ -122,19 +146,41 @@ router.post('/auth/register',  async (req: any, res: any) => {
       return res.status(400).json({ message: 'Password must be at least 8 characters' });
     }
 
+    if (coachRefToken) {
+      try {
+        const decoded = jwt.verify(String(coachRefToken), JWT_SECRET) as any;
+        if (decoded?.type !== 'coach_ref' || !decoded?.coachId) {
+          return res.status(400).json({ message: 'Invalid coach_ref token' });
+        }
+
+        const coachId = String(decoded.coachId);
+        const coachUser = await getUserById(coachId);
+        const coachRole = normalizeRoleToUpperCase(coachUser?.role);
+        if (!coachUser || (coachRole !== 'COACH' && coachRole !== 'ADMIN')) {
+          return res.status(400).json({ message: 'Invalid coach_ref owner' });
+        }
+
+        referredCoachId = coachId;
+      } catch (error) {
+        return res.status(400).json({ message: 'Invalid or expired coach_ref token' });
+      }
+    }
+
     const existingUser = await getUserByEmail(email);
     if (existingUser) {
-      return res.status(409).json({ message: 'Email already registered' });
+      return res.status(409).json({ 
+        error: 'USER_ALREADY_EXISTS',
+        message: '你的帳戶已註冊，請使用登入功能',
+        email: email,
+      });
     }
 
     const passwordHash = hashPassword(password);
 
-    // 標準化角色為小寫（資料庫使用小寫）
-    let normalizedRole = 'client';
+    // 標準化角色
+    let normalizedRole = 'USER';
     if (role && isValidRole(role)) {
-      normalizedRole = role.toString().toLowerCase();
-      // 將 'user' 轉換為 'client'
-      if (normalizedRole === 'user') normalizedRole = 'client';
+      normalizedRole = normalizeRoleToUpperCase(role);
     }
 
     // ✅ 生成郵箱驗證 token（未加密的原始 token，用於郵件鏈接）
@@ -155,6 +201,7 @@ router.post('/auth/register',  async (req: any, res: any) => {
     const newUser = await createUser({
       email,
       passwordHash,
+      username: usernameForDb,
       firstName,
       lastName,
       role: normalizedRole,
@@ -162,6 +209,27 @@ router.post('/auth/register',  async (req: any, res: any) => {
       emailVerified: false,
       emailVerificationExpires: expiresAt, // ✅ 保存過期時間
     });
+
+    if (newUser && referredCoachId) {
+      const existingRelationship = await db
+        .select({ id: coachClients.id })
+        .from(coachClients)
+        .where(
+          and(
+            eq(coachClients.coachId, referredCoachId),
+            eq(coachClients.clientId, String(newUser.id))
+          )
+        )
+        .limit(1);
+
+      if (existingRelationship.length === 0) {
+        await db.insert(coachClients).values({
+          coachId: referredCoachId,
+          clientId: String(newUser.id),
+          status: 'active',
+        });
+      }
+    }
 
     // ✅ 發送驗證郵件（使用未加密的原始 token）
     try {
@@ -179,7 +247,7 @@ router.post('/auth/register',  async (req: any, res: any) => {
 
     // ✅ 註冊成功，但不返回 token（用戶需要先驗證郵箱）
     // 使用資料庫中實際存儲的 role 值
-    const userRole = newUser.role || 'client';
+    const userRole = newUser.role || 'USER';
 
     console.log('[POST /auth/register] Success - user created, email verification required:', { 
       id: newUser.id, 
@@ -191,6 +259,12 @@ router.post('/auth/register',  async (req: any, res: any) => {
     res.status(201).json({
       success: true,
       message: 'Registration successful. Please verify your email before logging in.',
+      referral: referredCoachId
+        ? {
+            coachId: referredCoachId,
+            linked: true,
+          }
+        : null,
       // ✅ 不返回 token 和 refreshToken
       user: {
         id: newUser.id,
@@ -229,7 +303,11 @@ router.post('/auth/login', async (req: any, res: any) => {
 
     if (!user) {
       console.log('[POST /auth/login] User not found:', email);
-      return res.status(401).json({ message: 'Invalid credentials' });
+      return res.status(404).json({ 
+        error: 'USER_NOT_FOUND',
+        message: '你的帳戶並未註冊，請先註冊',
+        email: email,
+      });
     }
 
     if (!user.passwordHash) {
@@ -252,8 +330,8 @@ router.post('/auth/login', async (req: any, res: any) => {
       });
     }
 
-    // 直接使用資料庫中的原始 role 值（'client', 'coach' 等）
-    const userRole = user.role || 'client';
+    // 直接使用資料庫中的 role 值（'USER', 'COACH', 'ADMIN'）
+    const userRole = normalizeRoleToUpperCase(user.role);
 
     // 生成 tokens
     const accessToken = generateAccessToken({
@@ -293,6 +371,188 @@ router.post('/auth/login', async (req: any, res: any) => {
 });
 
 // ==========================================
+// POST /auth/apply-coach-ref - 補償綁定 coach referral
+// ==========================================
+router.post('/auth/apply-coach-ref', verifyJWT, async (req: any, res: any) => {
+  try {
+    const userId = String(req.user?.id || req.user?.claims?.sub || '').trim();
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'Unauthorized' });
+    }
+
+    const coachRefToken = String(req.body?.coachRef || req.body?.coach_ref || '').trim();
+    if (!coachRefToken) {
+      return res.status(400).json({ success: false, error: 'coachRef is required' });
+    }
+
+    let coachId = '';
+    try {
+      const decoded = jwt.verify(coachRefToken, JWT_SECRET) as any;
+      if (decoded?.type !== 'coach_ref' || !decoded?.coachId) {
+        return res.status(400).json({ success: false, error: 'Invalid coach_ref token' });
+      }
+      coachId = String(decoded.coachId).trim();
+    } catch {
+      return res.status(400).json({ success: false, error: 'Invalid or expired coach_ref token' });
+    }
+
+    if (!coachId || coachId === userId) {
+      return res.status(400).json({ success: false, error: 'Invalid coach_ref owner' });
+    }
+
+    const coachUser = await getUserById(coachId);
+    const coachRole = normalizeRoleToUpperCase(coachUser?.role);
+    if (!coachUser || (coachRole !== 'COACH' && coachRole !== 'ADMIN')) {
+      return res.status(400).json({ success: false, error: 'Invalid coach_ref owner' });
+    }
+
+    const existingRelationship = await db
+      .select({ id: coachClients.id })
+      .from(coachClients)
+      .where(
+        and(
+          eq(coachClients.coachId, coachId),
+          eq(coachClients.clientId, userId)
+        )
+      )
+      .limit(1);
+
+    if (existingRelationship.length > 0) {
+      return res.status(200).json({
+        success: true,
+        linked: false,
+        alreadyLinked: true,
+        coachId,
+      });
+    }
+
+    await db.insert(coachClients).values({
+      coachId,
+      clientId: userId,
+      status: 'active',
+    });
+
+    return res.status(200).json({
+      success: true,
+      linked: true,
+      coachId,
+    });
+  } catch (error) {
+    console.error('[POST /auth/apply-coach-ref] Error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to apply coach_ref',
+      message: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// ==========================================
+// POST /auth/forgot-password - 發送重設密碼郵件
+// ==========================================
+router.post('/auth/forgot-password', async (req: any, res: any) => {
+  try {
+    const { email } = req.body ?? {};
+    if (!email || typeof email !== 'string') {
+      return res.status(400).json({
+        success: false,
+        message: 'Email is required',
+      });
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+    const user = await getUserByEmail(normalizedEmail);
+
+    // 防止帳號枚舉：無論是否存在都回同樣訊息
+    if (!user) {
+      return res.json({
+        success: true,
+        message: '如果該郵箱已註冊，重設密碼郵件已發送',
+      });
+    }
+
+    const resetToken = jwt.sign(
+      {
+        sub: user.id,
+        email: user.email,
+        type: 'password_reset',
+      },
+      JWT_SECRET,
+      { expiresIn: '1h' } as SignOptions,
+    );
+
+    const appUrl = config.app.appUrl || config.app.clientUrl;
+    const resetLink = `${appUrl}/reset-password?token=${encodeURIComponent(resetToken)}`;
+
+    const html = `
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; color: #111827; line-height: 1.6;">
+  <h2 style="margin: 0 0 12px;">重設你的 FitBuddy 密碼</h2>
+  <p>我們收到你的重設密碼請求。請點擊以下按鈕在 1 小時內完成重設：</p>
+  <p style="margin: 20px 0;">
+    <a href="${resetLink}" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:600;">
+      重設密碼
+    </a>
+  </p>
+  <p>如果按鈕無法使用，請複製以下連結到瀏覽器：</p>
+  <p style="word-break: break-all; font-size: 12px; color: #4b5563;">${resetLink}</p>
+  <p style="font-size:12px; color:#6b7280; margin-top:16px;">如果這不是你本人操作，請忽略本郵件。</p>
+</div>
+    `;
+
+    const sendResult = await emailService.sendEmail({
+      to: normalizedEmail,
+      subject: 'FitBuddy 密碼重設請求',
+      html,
+      type: 'password_reset',
+    });
+
+    if (!sendResult.success) {
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to send reset email',
+        error: sendResult.error || 'Unknown email error',
+        logId: sendResult.logId,
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: '如果該郵箱已註冊，重設密碼郵件已發送',
+      logId: sendResult.logId,
+    });
+  } catch (error) {
+    console.error('[POST /auth/forgot-password] Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to process forgot password request',
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+router.get('/test-resend', async (_req: any, res: any) => {
+  try {
+    console.log('⚡️ 準備強制呼叫 Resend...');
+    console.log(
+      '目前使用的 API KEY:',
+      process.env.RESEND_API_KEY ? '已設定 (隱藏內容)' : '未設定 ❌'
+    );
+
+    const result = await sendEmail({
+      to: 'gordonlai87@gmail.com',
+      subject: 'FitBuddy 強制通電測試',
+      html: '<p>如果您看到這封信，代表 Resend 引擎運作完全正常！</p>',
+    });
+
+    console.log('✅ Resend 呼叫成功:', result);
+    res.json({ success: true, result });
+  } catch (error: any) {
+    console.error('❌ Resend 呼叫失敗:', error);
+    res.status(500).json({ success: false, error: error.message || error });
+  }
+});
+
+// ==========================================
 // 共用：角色選擇處理
 // ==========================================
 const handleRoleSelect = async (req: any, res: any) => {
@@ -316,12 +576,11 @@ const handleRoleSelect = async (req: any, res: any) => {
     if (!role || !isValidRole(role)) {
       console.log('[SelectRole] ❌ Invalid role:', role);
       return res.status(400).json({ 
-        error: "Invalid role. Must be 'client', 'coach', 'both', or 'admin'"
+        error: "Invalid role. Must be 'client', 'coach', 'user', or 'admin'"
       });
     }
 
-    // 標準化為小寫（資料庫使用小寫）
-    const normalizedRole = role.toString().toLowerCase();
+    const normalizedRole = normalizeRoleToUpperCase(role);
 
     console.log('[SelectRole] ✅ Validation passed', { userId, normalizedRole });
 
@@ -333,7 +592,7 @@ const handleRoleSelect = async (req: any, res: any) => {
     }
 
     // 使用資料庫中實際存儲的 role 值
-    const userRole = updatedUser.role || 'client';
+    const userRole = normalizeRoleToUpperCase(updatedUser.role);
 
     console.log('[SelectRole] ✅ Database updated:', { id: updatedUser.id, role: userRole });
 
@@ -414,35 +673,126 @@ router.get('/auth/me', async (req: any, res: any) => {
     }
 
     console.log('[GET /auth/me] Looking up user by id...');
-    const user = await getUserById(userId);
+    
+    // ✅ 修復：使用與 registration-status 相同的 SQL 查詢方式（直接查詢，支持 UUID）
+    // 使用 pool.query() 直接查詢，避免 Drizzle ORM 的類型轉換問題
+    let user: any;
+    let registrationComplete = true;
+    let hasTDEEComplete = false;
+    let hasRole = false;
+    let nextStep: number | null = null;
 
-    if (!user) {
-      console.log('[GET /auth/me] ❌ User not found in database:', userId);
-      return res.status(404).json({ error: 'User not found' });
+    try {
+      // 查詢 users 表實際存在的欄位（與 server/db/schema.ts 對齊）
+      const result = await pool.query(
+        `SELECT id, email, first_name, last_name, role, avatar, created_at, updated_at,
+                age, gender, height, weight, activity_level, goal, tdee
+         FROM users
+         WHERE id = $1
+         LIMIT 1`,
+        [userId]
+      );
+
+      if (result.rows.length === 0) {
+        console.log('[GET /auth/me] ❌ User not found in database:', userId);
+        return res.status(401).json({ error: 'User not found' });
+      }
+
+      const userData = result.rows[0];
+      user = {
+        id: userData.id,
+        email: userData.email,
+        firstName: userData.first_name,
+        lastName: userData.last_name,
+        role: userData.role,
+        avatar: userData.avatar,
+        createdAt: userData.created_at,
+        updatedAt: userData.updated_at,
+      };
+
+      // ✅ 檢查註冊是否完成
+      const userRole = userData.role;
+      const age = userData.age;
+      const gender = userData.gender;
+      const height = userData.height ? parseFloat(userData.height) : null;
+      const weight = userData.weight ? parseFloat(userData.weight) : null;
+      const activityLevel = userData.activity_level || null;
+      const goalType = userData.goal || null;
+      const tdee = userData.tdee ? parseFloat(userData.tdee) : null;
+
+      // 檢查 TDEE 基本信息（步驟 3）
+      const hasTDEEBasicInfo = !!(
+        age !== null && age !== undefined &&
+        gender !== null && gender !== undefined &&
+        height !== null && height !== undefined &&
+        weight !== null && weight !== undefined
+      );
+
+      // 檢查 TDEE 完整設置（步驟 4）
+      hasTDEEComplete = !!(
+        hasTDEEBasicInfo && 
+        activityLevel && 
+        goalType && 
+        tdee
+      );
+
+      // 檢查角色選擇（步驟 7）
+      // 注意：'client' 在 DB 儲存為 'USER'（與預設值相同），無法透過 role 欄位區分「已選 client」與「未選」
+      // 因此改以 hasTDEEComplete 作為完成依據：完成 TDEE（含 activityLevel + goal）即代表已走過步驟 7
+      // COACH 選擇仍可正確辨識（role = 'COACH'）
+      hasRole = !!(userRole === 'COACH' || hasTDEEComplete);
+
+      // 註冊完成 = 完成完整的 TDEE 設置（涵蓋步驟 3、4，並隱含已通過步驟 7）
+      registrationComplete = hasTDEEComplete;
+
+      // 下一步驟
+      if (!hasTDEEBasicInfo) {
+        nextStep = 3;
+      } else if (!hasTDEEComplete) {
+        nextStep = 4;
+      } else {
+        nextStep = null;
+      }
+
+      console.log('[GET /auth/me] ✅ Registration check:', {
+        userId,
+        hasTDEEBasicInfo,
+        hasTDEEComplete,
+        hasRole,
+        registrationComplete,
+        nextStep,
+      });
+
+    } catch (queryError: any) {
+      console.error('[GET /auth/me] ❌ Database query error:', queryError);
+      return res.status(500).json({ error: 'Failed to fetch user from database' });
     }
 
     // 直接使用資料庫中的原始 role 值
-    const userRole = user.role || 'client';
+    const userRole = user.role || 'USER';
 
     console.log('[GET /auth/me] ✅ User found:', {
-      id: user.id, email: user.email, dbRole: user.role
+      id: user.id, email: user.email, dbRole: user.role, registrationComplete
     });
 
-    const { passwordHash, profileImageUrl, ...safeUser } = user as any;
-
+    // ✅ JWT 有效且用戶存在時一律回 200，帶註冊狀態 flag；僅無 token/驗證失敗/用戶不存在時回 401
     const responseData = {
-      id: safeUser.id,
-      email: safeUser.email,
-      firstName: safeUser.firstName,
-      lastName: safeUser.lastName,
-      avatar: profileImageUrl || null,  // 將 profileImageUrl 映射為 avatar
+      id: user.id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      avatar: user.avatar || null,
       role: userRole,           // 直接返回資料庫原始值
-      createdAt: safeUser.createdAt,
+      createdAt: user.createdAt,
+      registrationComplete,
+      hasTDEEComplete,
+      hasRole,
+      nextStep,
     };
 
     console.log('[GET /auth/me] ✅ Responding with:', responseData);
     console.log('[GET /auth/me] ===== END =====');
-    res.json(responseData);
+    res.status(200).json(responseData);
   } catch (error) {
     console.error('[GET /auth/me] ❌ Error fetching user:', error);
     res.status(500).json({ error: 'Failed to fetch user' });
@@ -487,7 +837,7 @@ router.post('/auth/refresh', async (req: any, res: any) => {
     }
 
     // 生成新的 access token
-    const userRole = user.role || 'client';
+    const userRole = normalizeRoleToUpperCase(user.role);
     const newAccessToken = generateAccessToken({
       sub: String(user.id),
       email: user.email || '',
@@ -943,7 +1293,7 @@ router.delete('/v1/admin/users/:id', async (req: any, res: any) => {
     // 刪除用戶
     await db
       .delete(users)
-      .where(eq(users.id, parseInt(id, 10)));
+      .where(eq(users.id, id));
 
     console.log('[DELETE /api/v1/admin/users/:id] ✅ 用戶已刪除:', {
       id,
@@ -973,10 +1323,10 @@ router.delete('/v1/admin/users/:id', async (req: any, res: any) => {
 // ==========================================
 router.post('/auth/google/callback', async (req: any, res: any) => {
   try {
-    const { code, clientId } = req.body;
+    const { code, clientId, flow } = req.body; // ← 添加 flow 參數
 
     console.log('[POST /auth/google/callback] ===== START =====');
-    console.log('[POST /auth/google/callback] Code received, length:', code?.length);
+    console.log('[POST /auth/google/callback] flow:', flow, 'code length:', code?.length);
     console.log('[POST /auth/google/callback] Client ID:', clientId);
 
     // ==========================================
@@ -1087,9 +1437,41 @@ router.post('/auth/google/callback', async (req: any, res: any) => {
     // ==========================================
     const normalizedEmail = googleUser.email.toLowerCase();
     let user = await getUserByEmail(normalizedEmail);
+    
+    // ✅ 標記是否為新用戶（在創建用戶之前記錄）
+    const isNewUser = !user;
+
+    console.log('[POST /auth/google/callback] 🔍 User check:', {
+      email: normalizedEmail,
+      flow: flow,
+      userFound: !!user,
+      isNewUser: isNewUser,
+    });
+
+    // 如果在「登入頁面」但用戶不存在，直接返回錯誤（在創建用戶之前）
+    if (flow === 'login' && isNewUser) {
+      console.log('[POST /auth/google/callback] ⚠️ User does not exist in login flow');
+      return res.status(404).json({
+        success: false,
+        error: 'USER_NOT_FOUND',
+        message: '你的帳戶並未註冊，請先註冊',
+        email: googleUser.email,
+      });
+    }
+
+    // 如果在「註冊頁面」但用戶已存在，直接返回錯誤（在創建用戶之前）
+    if (flow === 'register' && !isNewUser && user) {
+      console.log('[POST /auth/google/callback] ⚠️ User already exists in register flow');
+      return res.status(409).json({
+        success: false,
+        error: 'USER_ALREADY_EXISTS',
+        message: '你的帳戶已註冊，請使用登入功能',
+        email: user.email,
+      });
+    }
 
     if (!user) {
-      console.log('[POST /auth/google/callback] 👤 New user, creating account...');
+      console.log('[POST /auth/google/callback] 👤 Creating new user...');
 
       // 從 Google name 提取 firstName 和 lastName
       const [firstName, ...lastNameParts] = (googleUser.name || 'Google User').split(
@@ -1102,7 +1484,7 @@ router.post('/auth/google/callback', async (req: any, res: any) => {
         firstName: firstName || 'Google',
         lastName: lastName || 'User',
         passwordHash: crypto.randomBytes(32).toString('hex'), // 隨機密碼（Google OAuth 不需要）
-        role: 'client',
+        role: 'USER',
         emailVerified: true, // Google 已驗證 email
         emailVerificationToken: null,
         emailVerificationExpires: null,
@@ -1110,6 +1492,7 @@ router.post('/auth/google/callback', async (req: any, res: any) => {
 
       // 重新獲取用戶以確保獲取完整信息
       user = await getUserByEmail(normalizedEmail);
+      console.log('[POST /auth/google/callback] ✅ New user created, isNewUser should be true:', isNewUser);
 
       // 如果 Google 提供了頭像，更新用戶頭像
       if (googleUser.picture && user) {
@@ -1128,6 +1511,7 @@ router.post('/auth/google/callback', async (req: any, res: any) => {
         email: user?.email,
       });
     } else {
+      console.log('[POST /auth/google/callback] 👤 Existing user found, isNewUser should be false:', isNewUser);
       console.log('[POST /auth/google/callback] ✅ Existing user found:', {
         id: user.id,
         email: user.email,
@@ -1178,7 +1562,7 @@ router.post('/auth/google/callback', async (req: any, res: any) => {
     // ==========================================
     console.log('[POST /auth/google/callback] Generating JWT tokens...');
 
-    const userRole = user.role || 'client';
+    const userRole = normalizeRoleToUpperCase(user.role);
 
     const accessToken = generateAccessToken({
       sub: String(user.id), // ✅ 轉換為字符串
@@ -1194,11 +1578,21 @@ router.post('/auth/google/callback', async (req: any, res: any) => {
     // ==========================================
     // 步驟 6：返回響應
     // ==========================================
+    
+    console.log('[POST /auth/google/callback] 📤 Returning response with:', {
+      isNewUser: isNewUser,
+      flow: flow,
+      userId: user?.id,
+      email: user?.email,
+    });
+    
     res.json({
       success: true,
       message: 'Google authentication successful',
       token: accessToken,
       refreshToken,
+      isNewUser: isNewUser, // ✅ 標記是否為新用戶
+      flow: flow, // ← 返回 flow 供前端使用
       user: {
         id: user.id,
         email: user.email,
@@ -1238,45 +1632,14 @@ router.get('/auth/registration-status', verifyJWT, async (req: any, res: any) =>
 
     console.log('[GET /auth/registration-status] Checking registration status for user:', userId);
 
-    // ✅ 使用與 verifyJWT 相同的 SQL 查詢方式（直接查詢所有字段）
-    // ✅ 使用 req.user.id（verifyJWT 已經驗證過用戶存在並設置了 req.user）
-    // ✅ 修復：處理可能不存在的列名（goal_type 等）
-    let result;
-    try {
-      result = await pool.query(
-        `SELECT id, email, first_name, last_name, role, age, gender, height_cm, current_weight_kg, activity_level, goal_type, tdee
-         FROM users 
-         WHERE id = $1 
-         LIMIT 1`,
-        [userId]
-      );
-    } catch (queryError: any) {
-      // 如果列不存在，只查詢基本字段
-      if (queryError.code === '42703') {
-        console.log('[GET /auth/registration-status] ⚠️ Some columns not found, using basic fields only');
-        try {
-          result = await pool.query(
-            `SELECT id, email, first_name, last_name, role, age, gender, height_cm, current_weight_kg, activity_level, tdee
-             FROM users 
-             WHERE id = $1 
-             LIMIT 1`,
-            [userId]
-          );
-        } catch (altError: any) {
-          // 如果還是失敗，只查詢最基礎的字段
-          console.log('[GET /auth/registration-status] ⚠️ TDEE columns not found, using minimal fields only');
-          result = await pool.query(
-            `SELECT id, email, first_name, last_name, role
-             FROM users 
-             WHERE id = $1 
-             LIMIT 1`,
-            [userId]
-          );
-        }
-      } else {
-        throw queryError;
-      }
-    }
+    // 查詢 users 表實際存在的欄位（與 server/db/schema.ts 對齊）
+    const result = await pool.query(
+      `SELECT id, email, first_name, last_name, role, age, gender, height, weight, activity_level, goal, tdee
+       FROM users
+       WHERE id = $1
+       LIMIT 1`,
+      [userId]
+    );
 
     // ✅ 如果用戶不存在，返回 incomplete 而不是 404
     if (result.rows.length === 0) {
@@ -1303,21 +1666,19 @@ router.get('/auth/registration-status', verifyJWT, async (req: any, res: any) =>
     const userRole = userData.role;
     const age = userData.age;
     const gender = userData.gender;
-    // ✅ 修復：支持多種列名格式，處理可能不存在的字段
-    const height = userData.height_cm ? parseFloat(userData.height_cm) : null;
-    const weight = userData.current_weight_kg ? parseFloat(userData.current_weight_kg) : null;
+    const height = userData.height ? parseFloat(userData.height) : null;
+    const weight = userData.weight ? parseFloat(userData.weight) : null;
     const activityLevel = userData.activity_level || null;
-    const goalType = userData.goal_type || null; // ✅ 處理可能不存在的字段
+    const goalType = userData.goal || null;
     const tdee = userData.tdee ? parseFloat(userData.tdee) : null;
 
-    // ✅ 新流程：角色選擇移到步驟 7（最後一步）
     // 步驟 1: 用戶名（OAuth 用戶已有，可視為完成）
     // 步驟 2: Email/Password（OAuth 用戶已跳過，視為完成）
     // 步驟 3: TDEE 基本信息（年齡、性別、身高、體重）
     // 步驟 4: TDEE 完整設置（活動水平、目標）
     // 步驟 5: Newsletter（可選）
     // 步驟 6: Sync Contacts（可選）
-    // 步驟 7: 角色選擇（必要，最後一步）
+    // 步驟 7: 角色選擇
 
     // 檢查 TDEE 基本信息（步驟 3）
     const hasTDEEBasicInfo = !!(
@@ -1339,8 +1700,9 @@ router.get('/auth/registration-status', verifyJWT, async (req: any, res: any) =>
       tdee
     );
 
-    // 檢查角色選擇（步驟 7）
-    const hasRole = userRole && userRole !== 'USER'; // 'USER' 是默認值，不算已選擇
+    // 角色選擇（步驟 7）
+    // 'client' 在 DB 儲存為 'USER'（與預設值相同），以 hasTDEEComplete 作為完成依據
+    const hasRole = userRole === 'COACH' || hasTDEEComplete;
 
     let registrationStatus: 'incomplete' | 'partial' | 'complete';
     let nextStep: number | null = null;
@@ -1351,9 +1713,6 @@ router.get('/auth/registration-status', verifyJWT, async (req: any, res: any) =>
     } else if (!hasTDEEComplete) {
       registrationStatus = 'partial';
       nextStep = 4;
-    } else if (!hasRole) {
-      registrationStatus = 'partial';
-      nextStep = 7; // 角色選擇是步驟 7
     } else {
       registrationStatus = 'complete';
       nextStep = null;
