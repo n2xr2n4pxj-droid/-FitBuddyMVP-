@@ -13,7 +13,6 @@ import { config } from "./config/env";
 import workoutRoutes from "./routes/workouts";
 import coachRoutes from "./routes/coaches";
 import coachClientRoutes from "./routes/coach-client";
-import workoutPlanRoutes from "./routes/workout-plans";
 import plansRoutes from "./routes/plans";
 import authRoutes from "./routes/auth";
 import invitationRoutes from "./routes/invitations";
@@ -72,9 +71,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Coach/client relationship list (coach_clients table): /api/coach/clients, /api/client/coaches
   app.use("/api", coachClientRoutes);
   
-  // Register workout plan routes
-  app.use("/api", workoutPlanRoutes);
-
   // Plans（Phase D）：/api/plans/*
   app.use("/api", plansRoutes);
   // Dashboard（Phase E）：/api/dashboard/*

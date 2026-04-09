@@ -1418,24 +1418,23 @@ router.post("/workouts", isAuthenticated, async (req: any, res: any) => {
       });
     }
 
-    // 構建 exercises JSON
-    let exercisesJson = null;
+    // 構建 exercises 資料（jsonb 欄位，直接傳入 JS 物件）
+    let exercisesData: unknown = null;
     
     // 如果前端直接提供了 exercises 數組，使用它（優先級最高）
     if (exercises && Array.isArray(exercises)) {
-      exercisesJson = JSON.stringify(exercises);
+      exercisesData = exercises;
       console.log("[POST /api/workouts] Using provided exercises array with", exercises.length, "sets");
-      console.log("[POST /api/workouts] Exercises data:", JSON.stringify(exercises, null, 2));
     }
     // 否則，如果提供了單個 sets/reps/weight，創建單元素數組（向後兼容）
     else if (exerciseName || sets || reps || weight) {
-      exercisesJson = JSON.stringify([{
+      exercisesData = [{
         exerciseName: exerciseName || null,
         sets: sets || null,
         reps: reps || null,
         weight: weight || null,
         weightUnit: weightUnit || 'kg',
-      }]);
+      }];
       console.log("[POST /api/workouts] Creating single exercise from individual fields");
     }
 
@@ -1455,7 +1454,7 @@ router.post("/workouts", isAuthenticated, async (req: any, res: any) => {
         workoutType,
         finalDuration,
         finalCalories,
-        exercisesJson,
+        exercisesData,
         notes || null,
         finalPerformedAt,
       ]
@@ -1658,65 +1657,46 @@ router.put("/workouts/:id", isAuthenticated, async (req: any, res: any) => {
       values.push(performedAt || date);
     }
 
-    // 處理 exercises JSON
-    // 優先處理前端直接提供的 exercises 數組
+    // 處理 exercises（jsonb 欄位，直接傳入 JS 物件）
     if (req.body.exercises && Array.isArray(req.body.exercises)) {
-      const exercises = JSON.stringify(req.body.exercises);
       console.log("[PUT /api/workouts/:id] Using provided exercises array with", req.body.exercises.length, "sets");
       updates.push(`exercises = $${paramCount++}`);
-      values.push(exercises);
+      values.push(req.body.exercises);
     }
     // 否則，如果提供了單個字段，更新第一個 exercise（向後兼容）
     else if (exerciseName !== undefined || sets !== undefined || reps !== undefined || weight !== undefined) {
-      // 獲取現有的 exercises 或創建新的
+      // 獲取現有的 exercises（jsonb 欄位，pg 自動 parse 為 JS 物件）
       const existingWorkout = await pool.query(
         "SELECT exercises FROM workouts WHERE id = $1",
         [workoutId]
       );
       
-      let exercises = null;
-      if (existingWorkout.rows[0]?.exercises) {
-        try {
-          const existingExercises = typeof existingWorkout.rows[0].exercises === 'string'
-            ? JSON.parse(existingWorkout.rows[0].exercises)
-            : existingWorkout.rows[0].exercises;
-          
-          if (Array.isArray(existingExercises) && existingExercises.length > 0) {
-            // 更新第一個 exercise
-            exercises = JSON.stringify([{
-              ...existingExercises[0],
-              exerciseName: exerciseName !== undefined ? exerciseName : existingExercises[0].exerciseName,
-              sets: sets !== undefined ? sets : existingExercises[0].sets,
-              reps: reps !== undefined ? reps : existingExercises[0].reps,
-              weight: weight !== undefined ? weight : existingExercises[0].weight,
-              weightUnit: weightUnit !== undefined ? weightUnit : (existingExercises[0].weightUnit || 'kg'),
-            }]);
-          } else {
-            exercises = JSON.stringify([{
-              exerciseName: exerciseName || null,
-              sets: sets || null,
-              reps: reps || null,
-              weight: weight || null,
-              weightUnit: weightUnit || 'kg',
-            }]);
-          }
-        } catch (e) {
-          exercises = JSON.stringify([{
-            exerciseName: exerciseName || null,
-            sets: sets || null,
-            reps: reps || null,
-            weight: weight || null,
-            weightUnit: weightUnit || 'kg',
-          }]);
+      let exercises: unknown[] = [];
+      const raw = existingWorkout.rows[0]?.exercises;
+      if (raw) {
+        // jsonb 欄位讀出已是物件；保留對舊 text 欄位的相容處理
+        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          exercises = parsed;
         }
+      }
+      if (exercises.length > 0) {
+        exercises = [{
+          ...(exercises[0] as object),
+          exerciseName: exerciseName !== undefined ? exerciseName : (exercises[0] as any).exerciseName,
+          sets: sets !== undefined ? sets : (exercises[0] as any).sets,
+          reps: reps !== undefined ? reps : (exercises[0] as any).reps,
+          weight: weight !== undefined ? weight : (exercises[0] as any).weight,
+          weightUnit: weightUnit !== undefined ? weightUnit : ((exercises[0] as any).weightUnit || 'kg'),
+        }];
       } else {
-        exercises = JSON.stringify([{
+        exercises = [{
           exerciseName: exerciseName || null,
           sets: sets || null,
           reps: reps || null,
           weight: weight || null,
           weightUnit: weightUnit || 'kg',
-        }]);
+        }];
       }
       
       updates.push(`exercises = $${paramCount++}`);

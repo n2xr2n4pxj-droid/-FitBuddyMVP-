@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/useAuth";
-import { useAuthStore } from "@/store/auth.store";
+import useAuthStore from "@/store/auth.store";
 import SplashScreen from "@/components/SplashScreen";
 import UnauthenticatedRoutes from "@/routes/UnauthenticatedRoutes";
 import ClientRouter from "@/components/ClientRouter";
@@ -42,6 +42,10 @@ export default function App() {
   const [coachProgressClientId, setCoachProgressClientId] = useState<string | null>(null);
   const [coachProgressClientName, setCoachProgressClientName] = useState<string | null>(null);
   const mainScrollRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    void useAuthStore.getState().initializeAuth();
+  }, []);
 
   useEffect(() => {
     setActiveView(user?.role === "COACH" ? "TRAINER" : "LEARNER");

@@ -1,83 +1,110 @@
-/**
- * @deprecated 請改用 `pages/auth/LandingPage` + `pages/auth/LoginPage` 未登入流程；此檔保留供參考。
- */
-import { FormEvent, useState } from "react";
-import { useAuth } from "@/hooks/useAuth";
-import type { ApiError } from "@/lib/api";
+import React, { useRef } from 'react';
+import { useLocation } from 'wouter';
+import { useAuthStore } from '@/store/auth.store';
+import { loginSchema } from '@/schemas/auth';
+import { toast } from '@/components/ui/toast';
 
-export default function LoginPage() {
-  const { login } = useAuth();
-  const [email, setEmail] = useState("coach@fitbuddy.hk");
-  const [password, setPassword] = useState("password123");
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errorMessage, setErrorMessage] = useState("");
+export const LoginPage: React.FC = () => {
+  const [isPending, setIsPending] = React.useState(false);
+  const executionLock = useRef<boolean>(false);
+  const [, navigate] = useLocation();
+  const { login, isAuthLoading } = useAuthStore();
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+  const handleAuthError = (error: any) => {
+    if (error?.message === 'INVALID_USER_DATA') {
+      toast.error('伺服器回傳異常資料，請聯繫客服');
+      return;
+    }
+    if (!error?.response) {
+      toast.error('連線失敗，請檢查您的網路設定');
+      return;
+    }
+    const { status, data } = error.response;
+    if (status === 403 && data?.needsVerification) {
+      toast.warning('帳號需要驗證，請檢查電子郵件');
+      navigate('/verify-email');
+    } else if (status === 401 || status === 404) {
+      if (data?.code === 'USER_NOT_FOUND') {
+        toast.error('找不到此帳號，請先註冊');
+        navigate('/register-flow?step=1');
+      } else {
+        toast.error('帳號或密碼錯誤');
+      }
+    } else {
+      toast.error(data?.message || '發生未知錯誤，請稍後再試');
+    }
+  };
+
+  const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setErrorMessage("");
-    setIsSubmitting(true);
+    if (executionLock.current || isAuthLoading) return;
+
+    const formData = new FormData(event.currentTarget);
+    const rawData = Object.fromEntries(formData.entries());
+
+    const validation = loginSchema.safeParse(rawData);
+    if (!validation.success) {
+      toast.error(validation.error.errors[0].message);
+      return;
+    }
+
+    executionLock.current = true;
+    setIsPending(true);
 
     try {
-      await login(email.trim(), password.trim());
+      await login(validation.data.email, validation.data.password);
+      navigate('/');
     } catch (error) {
-      const apiError = error as ApiError;
-      setErrorMessage(apiError.message || "登入失敗，請稍後再試");
+      handleAuthError(error);
     } finally {
-      setIsSubmitting(false);
+      setIsPending(false);
+      executionLock.current = false;
     }
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 px-4 py-10">
-      <div className="max-w-md mx-auto">
-        <div className="bg-white/90 backdrop-blur-md rounded-[20px] shadow-sm shadow-blue-100/50 p-5">
-          <h1 className="text-2xl font-bold text-gray-900">登入 FitBuddy</h1>
-          <p className="mt-1 text-sm text-gray-500">歡迎返嚟，今日都繼續撐住！</p>
-
-          {errorMessage ? (
-            <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-              {errorMessage}
-            </div>
-          ) : null}
-
-          <form onSubmit={handleSubmit} className="mt-5 space-y-4">
-            <label className="block">
-              <span className="text-sm text-gray-700">Email</span>
-              <input
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-gray-900 outline-none focus:border-blue-500"
-                required
-              />
-            </label>
-
-            <label className="block">
-              <span className="text-sm text-gray-700">密碼</span>
-              <input
-                type="password"
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                className="mt-1 w-full rounded-xl border border-gray-200 px-3 py-2 text-gray-900 outline-none focus:border-blue-500"
-                required
-              />
-            </label>
-
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="w-full rounded-xl bg-blue-600 py-2.5 text-white font-semibold active:scale-95 transition-transform disabled:opacity-60"
-            >
-              {isSubmitting ? "登入中..." : "登入"}
-            </button>
-          </form>
-
-          <p className="mt-4 text-center text-sm text-gray-500">
-            沒有帳號？用邀請連結註冊
-          </p>
-        </div>
+  <div className="flex min-h-screen items-center justify-center px-4">
+    <div className="w-full max-w-md space-y-8 rounded-lg border bg-card p-8 shadow-lg">
+      <div className="text-center">
+        <h2 className="text-3xl font-bold tracking-tight text-primary">FitBuddy 登入</h2>
+        <p className="text-sm text-muted-foreground mt-2">請輸入您的帳號密碼以繼續</p>
       </div>
+      <form onSubmit={onSubmit} className="space-y-6">
+        <div className="space-y-2">
+          <label htmlFor="email" className="text-sm font-medium">
+            電子郵件
+          </label>
+          <input
+            id="email"
+            name="email"
+            type="email"
+            required
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none disabled:opacity-50"
+            placeholder="name@example.com"
+          />
+        </div>
+        <div className="space-y-2">
+          <label htmlFor="password" className="text-sm font-medium">
+            密碼
+          </label>
+          <input
+            id="password"
+            name="password"
+            type="password"
+            required
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none disabled:opacity-50"
+            placeholder="••••••••"
+          />
+        </div>
+        <button
+          type="submit"
+          disabled={isPending || isAuthLoading}
+          className="inline-flex w-full justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90 disabled:opacity-50 disabled:pointer-events-none"
+        >
+          {isPending || isAuthLoading ? '登入中...' : '登入'}
+        </button>
+      </form>
     </div>
-  );
-}
-
+  </div>
+);
+};

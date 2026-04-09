@@ -32,6 +32,19 @@ import {
 import { relations } from 'drizzle-orm';
 
 // ==========================================
+// Domain Types（供 jsonb 欄位的型別推導使用）
+// ==========================================
+
+/** workouts.exercises 每一筆動作記錄的結構 */
+export interface WorkoutExerciseEntry {
+  exerciseName: string | null;
+  sets: number | null;
+  reps: number | null;
+  weight: number | null;
+  weightUnit: 'kg' | 'lbs';
+}
+
+// ==========================================
 // 枚舉類型定義
 // ==========================================
 
@@ -65,12 +78,8 @@ export const invitationStatusEnum = pgEnum('invitation_status', [
   'EXPIRED'    // 已過期
 ]);
 
-// 教練客戶關聯狀態
-export const relationshipStatusEnum = pgEnum('relationship_status', [
-  'ACTIVE',    // 活躍
-  'PAUSED',    // 暫停
-  'TERMINATED' // 終止
-]);
+// relationshipStatusEnum 已廢棄（coachClientRelationships 表移除後不再使用）
+// DB 中的 enum type 可在確認後用 migration 刪除
 
 // 好友請求狀態（Phase 3）
 export const friendRequestStatusEnum = pgEnum('friend_request_status', [
@@ -184,35 +193,8 @@ export const invitationTemplates = pgTable('invitation_templates', {
   uniqueCoachName: uniqueIndex('unique_coach_template_name').on(table.coachId, table.name),
 }));
 
-// 教練-客戶關聯表
-export const coachClientRelationships = pgTable('coach_client_relationships', {
-  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
-  
-  // 關聯雙方：使用 UUID / varchar，關聯 users.id
-  coachId: varchar('coach_id')
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  clientId: varchar('client_id')
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  
-  // 關聯狀態
-  status: relationshipStatusEnum('status').default('ACTIVE').notNull(),
-  
-  // 附加信息
-  notes: text('notes'), // 教練對客戶的備註
-  startDate: timestamp('start_date', { withTimezone: true }).defaultNow().notNull(),
-  endDate: timestamp('end_date', { withTimezone: true }),
-  
-  // 時間戳
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-}, (table) => ({
-  coachIdx: index('coach_client_relationships_coach_idx').on(table.coachId),
-  clientIdx: index('coach_client_relationships_client_idx').on(table.clientId),
-  statusIdx: index('coach_client_relationships_status_idx').on(table.status),
-  uniqueRelationship: uniqueIndex('coach_client_relationships_unique').on(table.coachId, table.clientId),
-}));
+// ⚠️ coachClientRelationships 已廢棄，統一使用 coachClients
+// （舊表 coach_client_relationships 仍存在於 DB，可在確認無資料後用 migration 刪除）
 
 // ==========================================
 // 飲食與訓練系統
@@ -274,8 +256,8 @@ export const workouts = pgTable('workouts', {
   caloriesBurned: real('calories_burned'),
   intensity: text('intensity', { enum: ['LOW', 'MODERATE', 'HIGH', 'EXTREME'] }),
   
-  // 詳細記錄（JSON 格式）
-  exercises: text('exercises'), // JSON 字符串：[{ name, sets, reps, weight }]
+  // 詳細記錄（jsonb 格式）
+  exercises: jsonb('exercises').$type<WorkoutExerciseEntry[]>(), // [{ exerciseName, sets, reps, weight, weightUnit }]
   
   // 附加信息
   notes: text('notes'),
@@ -438,45 +420,8 @@ export const coachClients = pgTable('coach_clients', {
   uniqueRelationship: index('coach_clients_unique').on(table.coachId, table.clientId),
 }));
 
-// 訓練計劃表
-export const workoutPlans = pgTable('workout_plans', {
-  id: varchar('id').primaryKey().default(sql`gen_random_uuid()`),
-  
-  // 關聯雙方：使用 UUID / varchar，關聯 users.id
-  coachId: varchar('coach_id')
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  clientId: varchar('client_id')
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
-
-  // 基本信息
-  name: text('name').notNull(),
-  description: text('description'),
-  
-  // 訓練內容（JSON 格式）
-  exercises: text('exercises'), // JSON 字符串：訓練動作和詳細信息
-  weekDays: text('week_days'), // JSON 字符串：一週中的訓練日 [1,3,5] 表示週一、三、五
-  
-  // 計劃詳情
-  duration: integer('duration'), // 計劃持續週數
-  notes: text('notes'),
-  
-  // 狀態
-  status: text('status', { enum: ['draft', 'active', 'completed'] }).default('draft').notNull(),
-  
-  // 日期
-  startDate: timestamp('start_date', { withTimezone: true }),
-  endDate: timestamp('end_date', { withTimezone: true }),
-  
-  // 時間戳
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-}, (table) => ({
-  coachIdx: index('workout_plans_coach_idx').on(table.coachId),
-  clientIdx: index('workout_plans_client_idx').on(table.clientId),
-  statusIdx: index('workout_plans_status_idx').on(table.status),
-}));
+// ⚠️ workoutPlans 已廢棄，統一使用 workoutRoutines（正規化結構 + 軟刪除）
+// （舊表 workout_plans 仍存在於 DB，可在確認無資料後用 migration 刪除）
 
 // ==========================================
 // Hevy 風格訓練模組（動作庫 / 課表 / 組數）
@@ -754,15 +699,9 @@ export const usersRelations = relations(users, ({ many }) => ({
   sentInvitations: many(invitations, { relationName: 'sender' }),
   receivedInvitations: many(invitations, { relationName: 'receiver' }),
   
-  // 教練-客戶關係
-  myClients: many(coachClientRelationships, { relationName: 'coach' }),
-  myCoaches: many(coachClientRelationships, { relationName: 'client' }),
-  
-  // 教練系統 Phase 2
+  // 教練-客戶關係（統一使用 coachClients）
   coachClientsAsCoach: many(coachClients, { relationName: 'coach' }),
   coachClientsAsClient: many(coachClients, { relationName: 'client' }),
-  workoutPlansAsCoach: many(workoutPlans, { relationName: 'coach' }),
-  workoutPlansAsClient: many(workoutPlans, { relationName: 'client' }),
   workoutRoutinesAsCoach: many(workoutRoutines, { relationName: 'coach' }),
   workoutRoutinesAsClient: many(workoutRoutines, { relationName: 'client' }),
   workoutSessions: many(workoutSessions),
@@ -798,18 +737,7 @@ export const invitationsRelations = relations(invitations, ({ one }) => ({
   }),
 }));
 
-export const coachClientRelationshipsRelations = relations(coachClientRelationships, ({ one }) => ({
-  coach: one(users, {
-    fields: [coachClientRelationships.coachId],
-    references: [users.id],
-    relationName: 'coach',
-  }),
-  client: one(users, {
-    fields: [coachClientRelationships.clientId],
-    references: [users.id],
-    relationName: 'client',
-  }),
-}));
+// coachClientRelationshipsRelations 已移除（表已廢棄）
 
 export const mealsRelations = relations(meals, ({ one }) => ({
   user: one(users, {
@@ -890,18 +818,7 @@ export const coachClientsRelations = relations(coachClients, ({ one }) => ({
   }),
 }));
 
-export const workoutPlansRelations = relations(workoutPlans, ({ one }) => ({
-  coach: one(users, {
-    fields: [workoutPlans.coachId],
-    references: [users.id],
-    relationName: 'coach',
-  }),
-  client: one(users, {
-    fields: [workoutPlans.clientId],
-    references: [users.id],
-    relationName: 'client',
-  }),
-}));
+// workoutPlansRelations 已移除（表已廢棄）
 
 export const exercisesRelations = relations(exercises, ({ one }) => ({
   createdByUser: one(users, {
@@ -1028,8 +945,7 @@ export type NewInvitation = typeof invitations.$inferInsert;
 export type InvitationTemplate = typeof invitationTemplates.$inferSelect;
 export type NewInvitationTemplate = typeof invitationTemplates.$inferInsert;
 
-export type CoachClientRelationship = typeof coachClientRelationships.$inferSelect;
-export type NewCoachClientRelationship = typeof coachClientRelationships.$inferInsert;
+// CoachClientRelationship types 已移除（統一使用 CoachClient）
 
 export type Meal = typeof meals.$inferSelect;
 export type NewMeal = typeof meals.$inferInsert;
@@ -1052,8 +968,7 @@ export type NewFriendship = typeof friendships.$inferInsert;
 export type CoachClient = typeof coachClients.$inferSelect;
 export type NewCoachClient = typeof coachClients.$inferInsert;
 
-export type WorkoutPlan = typeof workoutPlans.$inferSelect;
-export type NewWorkoutPlan = typeof workoutPlans.$inferInsert;
+// WorkoutPlan types 已移除（統一使用 WorkoutRoutine）
 
 export type Exercise = typeof exercises.$inferSelect;
 export type NewExercise = typeof exercises.$inferInsert;

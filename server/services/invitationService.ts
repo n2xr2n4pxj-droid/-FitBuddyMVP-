@@ -10,7 +10,7 @@
  */
 
 import { db, pool } from '../db';
-import { invitations, users, coachClientRelationships, coachClients, invitationTemplates } from '../db/schema';
+import { invitations, users, coachClients, invitationTemplates } from '../db/schema';
 import emailService from './emailService';
 import { eq, and, or, desc } from 'drizzle-orm';
 import crypto from 'crypto';
@@ -549,16 +549,8 @@ export async function acceptInvitation(
       role: newUser.role,
     });
 
-    // ✅ 創建教練-客戶關聯
-    await db
-      .insert(coachClientRelationships)
-      .values({
-        coachId: invitation.senderId,
-        clientId: newUser.id,
-        status: 'ACTIVE',
-      });
-
-    console.log('🟡 [acceptInvitation] Coach-client relationship created');
+    // coach-client 關聯統一在後續的 coachClients insert 步驟完成，此處不再寫入廢棄表
+    console.log('🟡 [acceptInvitation] Coach-client relationship will be created via coachClients');
 
     // ✅ 更新邀請狀態為已接受
     await db

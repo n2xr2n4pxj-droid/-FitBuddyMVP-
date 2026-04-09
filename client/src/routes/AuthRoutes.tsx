@@ -15,7 +15,7 @@ import { useEffect } from 'react';
 import { useLocation, Switch, Route } from 'wouter';
 import { useAuth } from '@/hooks/useAuth';
 import LandingPage from '@/pages/auth/LandingPage';
-import LoginPage from '@/pages/auth/LoginPage';
+import { LoginPage } from '@/pages/auth/LoginPage';
 import RegisterFlow from '@/pages/auth/RegisterFlow/RegisterFlow';
 import Dashboard from '@/pages/dashboard';
 

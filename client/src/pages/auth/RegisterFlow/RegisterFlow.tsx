@@ -360,7 +360,7 @@ export default function RegisterFlow(): JSX.Element {
           return;
         }
 
-        window.location.assign('/');
+        setLocation('/');
       } else {
         // 普通註冊用戶：調用註冊 API
         console.log('普通註冊用戶：調用註冊 API');
@@ -444,7 +444,7 @@ export default function RegisterFlow(): JSX.Element {
           return;
         }
 
-        window.location.assign('/');
+        setLocation('/');
       }
     } catch (error) {
       console.error('註冊錯誤:', error);

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { tokenManager } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/hooks/useAuth';
 import { useAuthStore } from '@/store/auth.store';
 import { isCoachRole, isClientRole, isBothRole } from '@/utils/role';
 import { cn } from '@/lib/utils';
@@ -27,7 +28,8 @@ export default function GoogleLoginButton({
 }: GoogleLoginButtonProps) {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const { setUser, setToken, setRefreshToken, fetchMe, logout } = useAuthStore();
+  const { isLoading } = useAuth();
+  const { fetchMe, logout } = useAuthStore();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -74,7 +76,7 @@ export default function GoogleLoginButton({
             setError(errorMessage);
             if (onError) onError(errorMessage);
             setTimeout(() => {
-              window.location.replace('/login');
+              setLocation('/login');
             }, 1000);
             return;
           }
@@ -87,7 +89,7 @@ export default function GoogleLoginButton({
             setError(errorMessage);
             if (onError) onError(errorMessage);
             setTimeout(() => {
-              window.location.replace('/register?step=1');
+              setLocation('/register?step=1');
             }, 1000);
             return;
           }
@@ -144,38 +146,17 @@ export default function GoogleLoginButton({
           refreshTokenLength: savedRefreshToken?.length,
         });
 
-        // 更新 auth store
-        if (data.user) {
-          setUser({
-            id: String(data.user.id),
-            email: data.user.email,
-            firstName: data.user.firstName,
-            lastName: data.user.lastName,
-            avatar: data.user.avatar,
-            role: data.user.role || 'client',
-            createdAt: data.user.createdAt,
-            emailVerified: data.user.emailVerified ?? true,
-          });
-        }
-
-        if (accessToken) {
-          setToken(accessToken);
-        }
-        if (refreshToken) {
-          setRefreshToken(refreshToken);
-        }
-
-        // ✅ 以伺服器為準：呼叫 /auth/me 取得 registrationComplete / nextStep 再決定導向
+        // ✅ 以伺服器為準：token 已在 tokenManager，fetchMe 一次 set 寫入 user / registrationComplete / nextStep
         try {
           await fetchMe();
         } catch (meErr) {
           console.error('[GoogleLoginButton] fetchMe failed after OAuth:', meErr);
           tokenManager.clear();
-          logout();
+          await logout();
           setLoading(false);
           setError('登入驗證失敗，請重新登入');
           if (onError) onError('登入驗證失敗，請重新登入');
-          window.location.replace('/login');
+          setLocation('/login');
           return;
         }
 
@@ -210,14 +191,14 @@ export default function GoogleLoginButton({
         if (complete) {
           const role = (meUser?.role ?? '').toString().toLowerCase();
           if (isCoachRole(role)) {
-            window.location.replace('/coach-dashboard');
+            setLocation('/coach-dashboard');
           } else if (isClientRole(role) || isBothRole(role)) {
-            window.location.replace('/client-dashboard');
+            setLocation('/client-dashboard');
           } else {
-            window.location.replace('/dashboard');
+            setLocation('/dashboard');
           }
         } else {
-          window.location.replace(`/register-flow?step=${stepNum}`);
+          setLocation(`/register-flow?step=${stepNum}`);
         }
       } catch (err: any) {
         console.error('[GoogleLoginButton] Error:', err);
@@ -250,11 +231,11 @@ export default function GoogleLoginButton({
     <div className="space-y-2">
       <Button
         onClick={() => googleLogin()}
-        disabled={loading}
+        disabled={loading || isLoading}
         className={cn("w-full", buttonClassName)}
         variant="outline"
       >
-        {loading ? (
+        {loading || isLoading ? (
           '登錄中...'
         ) : (
           <>

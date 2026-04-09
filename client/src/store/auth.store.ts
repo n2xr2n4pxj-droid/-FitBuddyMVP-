@@ -1,441 +1,312 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { api, tokenManager } from '@/lib/api-client';
-import { logger } from '@/lib/logger';
-import { normalizeRole } from '@/utils/role';
-import type { UserPayload } from '@/types/auth-payload';
+import { authService } from '@/services/authService';
+import { StoreUser } from '@/types/user';
 
-// ========== 類型定義 ==========
-export interface User {
-  id: string; // 與 API 客戶端保持一致（string 類型）
-  email: string;
-  firstName: string | null;
-  lastName: string | null;
-  avatar: string | null;
-  role: 'client' | 'coach' | 'admin' | 'both';
-  createdAt: string | null;
-  emailVerified?: boolean; // ✅ 郵箱驗證狀態
-}
-
-export interface AuthState {
-  // ===== 狀態 =====
-  user: User | null;
+/**
+ * 認證狀態介面
+ */
+interface AuthState {
   token: string | null;
-  refreshToken: string | null;
+  user: StoreUser | null;
   isAuthenticated: boolean;
+  isAuthLoading: boolean;
+  // compatibility
   isLoading: boolean;
   error: string | null;
-  needsVerification: boolean; // ✅ 郵箱驗證標記
-  lastRefreshTime: number | null;
-  pendingEmail: string | null; // ✅ 待驗證郵箱（註冊後未驗證）
-  registrationComplete: boolean; // 註冊流程是否完成（TDEE + 角色）
-  nextStep: number | null; // 未完成時下一步驟（3/4/7），完成時 null
+  needsVerification: boolean;
+  registrationComplete: boolean;
+  nextStep: number | null;
 
-  // ===== Setters =====
-  setUser: (user: User | null) => void;
-  setToken: (token: string | null) => void;
-  setRefreshToken: (refreshToken: string | null) => void;
-  setLoading: (loading: boolean) => void;
-  setError: (error: string | null) => void;
-
-  // ===== 操作 =====
+  // Actions
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, firstName?: string, lastName?: string) => Promise<void>;
-  selectRole: (role: 'client' | 'coach' | 'both' | 'admin') => Promise<void>;
+  selectRole: (role: 'client' | 'coach' | 'admin' | 'both') => Promise<void>;
+  loginWithOAuth: (oauthToken: string) => Promise<void>;
   fetchMe: () => Promise<void>;
+  initializeAuth: () => Promise<void>;
   logout: () => void;
-  checkAuth: () => Promise<void>;
 }
 
-function toStoreUser(user: UserPayload | undefined): User | null {
-  if (!user) return null;
-  return {
-    id: user.id,
-    email: user.email,
-    firstName: user.firstName ?? null,
-    lastName: user.lastName ?? null,
-    avatar: user.avatar ?? null,
-    role: (normalizeRole(user.role) ?? 'client') as 'client' | 'coach' | 'admin' | 'both',
-    createdAt: user.createdAt ?? null,
-  };
-}
+/**
+ * 【核心守衛】嚴格型別驗證 (Type Guard)
+ * 確保所有從 API 或 LocalStorage 取得的資料都符合 StoreUser 規範
+ */
+const validateUserData = (userData: any): userData is StoreUser => {
+  return (
+    userData !== null &&
+    typeof userData === 'object' &&
+    typeof userData.id === 'string' &&
+    typeof userData.email === 'string' &&
+    typeof userData.registrationComplete === 'boolean' &&
+    Array.isArray(userData.roles) // ✅ 關鍵修正：確保 roles 為陣列，防止 .includes() 崩潰
+  );
+};
 
-// ========== Zustand Store ==========
 export const useAuthStore = create<AuthState>()(
   persist(
-    (set, get) => ({
-      // ===== 初始狀態 =====
-      user: null,
-      token: null,
-      refreshToken: null,
-      isAuthenticated: false,
-      isLoading: false,
-      error: null,
-      needsVerification: false, // ✅ 郵箱驗證標記
-      lastRefreshTime: null,
-      pendingEmail: null, // ✅ 待驗證郵箱
-      registrationComplete: true,
-      nextStep: null,
+    (set, get) => {
+      /**
+       * 【私有方法】處理教練邀請碼的重試與清理 (Closure Scope)
+       */
+      const _handleCoachRefSequence = async () => {
+        const pendingRef = localStorage.getItem('pendingCoachRef');
+        if (!pendingRef) return;
 
-      // ===== Setters =====
-      setUser: (user) => {
-        if (user && user.role) {
-          const normalized = normalizeRole(user.role) ?? (user.role as 'client' | 'coach' | 'admin' | 'both');
-          set({
-            user: { ...user, role: normalized },
-            isAuthenticated: true,
-          });
-          logger.info('AUTH', 'User set', { userId: user.id });
-        } else {
-          set({ user, isAuthenticated: !!user });
-          if (user) {
-            logger.info('AUTH', 'User set', { userId: user.id });
+        const MAX_RETRIES = 3;
+        const rawRetryCount = Number(localStorage.getItem('coachRefRetryCount'));
+        const retryCount = Number.isFinite(rawRetryCount) ? rawRetryCount : 0;
+
+        try {
+          await authService.applyCoachRef(pendingRef);
+          localStorage.removeItem('pendingCoachRef');
+          localStorage.removeItem('coachRefRetryCount');
+          console.log('[AuthStore] Coach ref applied successfully.');
+        } catch (error) {
+          const newCount = retryCount + 1;
+          if (newCount >= MAX_RETRIES) {
+            console.error('[AuthStore] Max retries reached for Coach Ref. Cleaning up zombie state.');
+            localStorage.removeItem('pendingCoachRef');
+            localStorage.removeItem('coachRefRetryCount');
+          } else {
+            localStorage.setItem('coachRefRetryCount', String(newCount));
+            console.warn(`[AuthStore] Coach ref failed. Retry attempt: ${newCount}`);
           }
         }
-      },
+      };
 
-      setToken: (token) => set({ token }),
-      setRefreshToken: (refreshToken) => set({ refreshToken }),
-      setLoading: (isLoading) => set({ isLoading }),
-      setError: (error) => {
-        set({ error });
-        if (error) {
-          logger.warn('AUTH', 'Error set', { error });
+      /**
+       * 【私有方法】統一處理認證成功後的狀態寫入 (DRY Optimization)
+       */
+      const _applyAuthResult = async (token: string, userData: any) => {
+        if (!validateUserData(userData)) {
+          throw new Error('INVALID_USER_DATA');
         }
-      },
 
-      // ========== 登入 ==========
-      login: async function(email: string, password: string) {
-        // ✅ 詳細日誌：記錄實際傳入的參數
-        console.log('[auth.store] login called with:', {
-          emailParam: email,
-          emailParamType: typeof email,
-          passwordParam: password,
-          passwordParamType: typeof password,
-          timestamp: new Date().toISOString(),
+        set({
+          token,
+          user: userData as StoreUser,
+          isAuthenticated: true,
+          registrationComplete: userData.registrationComplete,
         });
 
-        // ✅ 嚴格類型驗證：確保 email 和 password 是字符串
-        if (typeof email !== 'string' || typeof password !== 'string') {
-          const error = new Error('Email and password must be strings');
-          logger.error('AUTH', 'Invalid login parameters', {
-            emailType: typeof email,
-            passwordType: typeof password,
-            emailValue: email,
-            timestamp: new Date().toISOString(),
-          });
-          set({
-            error: error.message,
-            isLoading: false,
-          });
-          throw error;
-        }
+        // 執行原子化副作用
+        try { await _handleCoachRefSequence(); } catch (e) { console.warn("[AuthStore] Coach ref sequence failed silently."); }
+      };
 
-        // ✅ 在調用 api.auth.login 前確保 trim()
-        const trimmedEmail = email.trim();
-        const trimmedPassword = password.trim();
+      return {
+        token: null,
+        user: null,
+        isAuthenticated: false,
+        isAuthLoading: false,
+        isLoading: false,
+        error: null,
+        needsVerification: false,
+        registrationComplete: false,
+        nextStep: null,
 
-        // ✅ 驗證不是空字符串
-        if (!trimmedEmail || !trimmedPassword) {
-          const error = new Error('Email and password cannot be empty');
-          logger.error('AUTH', 'Empty login parameters', {
-            emailLength: trimmedEmail.length,
-            passwordLength: trimmedPassword.length,
-            timestamp: new Date().toISOString(),
-          });
-          set({
-            error: error.message,
-            isLoading: false,
-          });
-          throw error;
-        }
+        /**
+         * 標準 Email/Password 登入流
+         */
+        login: async (email, password) => {
+          set({ isAuthLoading: true, isLoading: true, error: null, needsVerification: false });
+          try {
+            const res = await authService.login({ email, password });
+            const token = res.token ?? res.data?.token;
+            const rawUser = res.user ?? res.data?.user;
+            const normalizedUser: StoreUser | null = rawUser
+              ? {
+                  id: rawUser.id,
+                  email: rawUser.email,
+                  roles: [String(rawUser.role ?? 'client').toLowerCase()],
+                  role: String(rawUser.role ?? 'client').toLowerCase(),
+                  registrationComplete: (rawUser as any).registrationComplete === true,
+                  name:
+                    `${rawUser.firstName ?? ''} ${rawUser.lastName ?? ''}`.trim() || rawUser.email,
+                  firstName: rawUser.firstName ?? null,
+                  lastName: rawUser.lastName ?? null,
+                  avatar: rawUser.avatar ?? null,
+                }
+              : null;
+            if (!token || !normalizedUser) throw new Error('INVALID_USER_DATA');
+            await _applyAuthResult(token, normalizedUser);
+          } catch (error) {
+            set({ token: null, user: null, isAuthenticated: false, registrationComplete: false });
+            throw error;
+          } finally {
+            set({ isAuthLoading: false, isLoading: false });
+          }
+        },
 
-        set({ isLoading: true, error: null });
-        logger.info('AUTH', 'Login attempt', { 
-          email: trimmedEmail.substring(0, 3) + '***',
-          emailLength: trimmedEmail.length,
-          passwordLength: trimmedPassword.length,
-        });
+        /**
+         * OAuth 登入流
+         */
+        loginWithOAuth: async (oauthToken) => {
+          set({ isAuthLoading: true, isLoading: true, error: null });
+          try {
+            const maybeLoginWithGoogle = (authService as any).loginWithGoogle;
+            if (typeof maybeLoginWithGoogle !== 'function') {
+              throw new Error('OAUTH_LOGIN_NOT_IMPLEMENTED');
+            }
+            const res = await maybeLoginWithGoogle(oauthToken);
+            const token = res?.token ?? res?.data?.token;
+            const rawUser = res?.user ?? res?.data?.user;
+            const normalizedUser: StoreUser | null = rawUser
+              ? {
+                  id: rawUser.id,
+                  email: rawUser.email,
+                  roles: [String(rawUser.role ?? 'client').toLowerCase()],
+                  role: String(rawUser.role ?? 'client').toLowerCase(),
+                  registrationComplete: false,
+                  name:
+                    `${rawUser.firstName ?? ''} ${rawUser.lastName ?? ''}`.trim() || rawUser.email,
+                  firstName: rawUser.firstName ?? null,
+                  lastName: rawUser.lastName ?? null,
+                  avatar: rawUser.avatar ?? null,
+                }
+              : null;
+            if (!token || !normalizedUser) throw new Error('INVALID_USER_DATA');
+            await _applyAuthResult(token, normalizedUser);
+          } catch (error) {
+            set({ token: null, user: null, isAuthenticated: false, registrationComplete: false });
+            throw error;
+          } finally {
+            set({ isAuthLoading: false, isLoading: false });
+          }
+        },
 
-        try {
-          const response = await api.auth.login(trimmedEmail, trimmedPassword);
-          
-          // ✅ 檢查是否需要郵箱驗證
-          if (response.data?.needsVerification) {
-            const errorMsg = response.data?.error || '請先驗證你的郵箱';
+        register: async (email, password, firstName, lastName) => {
+          set({ isAuthLoading: true, isLoading: true, error: null, needsVerification: false });
+          try {
+            await authService.register({ email, password, firstName, lastName });
             set({
-              error: errorMsg,
-              isLoading: false,
-              needsVerification: true, // ✅ 添加 needsVerification 標記
+              token: null,
+              user: null,
+              isAuthenticated: false,
+              registrationComplete: false,
+              needsVerification: true,
             });
-            logger.warn('AUTH', 'Email verification required', { email: trimmedEmail });
-            throw new Error(errorMsg);
-          }
-
-          const { user, token, refreshToken } = response.data;
-
-          if (!token || !refreshToken) {
-            throw new Error('Missing token or refreshToken in response');
-          }
-
-          tokenManager.setAccessToken(token);
-          tokenManager.setRefreshToken(refreshToken);
-
-          set({
-            user: toStoreUser(user),
-            token,
-            refreshToken,
-            isAuthenticated: true,
-            isLoading: false,
-            lastRefreshTime: Date.now(),
-            needsVerification: false, // ✅ 清除標記
-          });
-
-          if (user) {
-            logger.info('AUTH', 'Login successful', { userId: user.id });
-          }
-        } catch (err: any) {
-          // ✅ 檢查是否是 403 錯誤（郵箱未驗證）
-          if (err.response?.status === 403 && err.response?.data?.needsVerification) {
-            const errorMsg = err.response?.data?.error || '請先驗證你的郵箱';
+          } catch (error: any) {
             set({
-              error: errorMsg,
-              isLoading: false,
-              needsVerification: true, // ✅ 添加 needsVerification 標記
+              token: null,
+              user: null,
+              isAuthenticated: false,
+              registrationComplete: false,
+              error: error?.response?.data?.error || error?.message || 'Registration failed',
             });
-            logger.warn('AUTH', 'Email verification required', { email: trimmedEmail });
-            throw err;
+            throw error;
+          } finally {
+            set({ isAuthLoading: false, isLoading: false });
           }
+        },
 
-          const errorMsg = err.response?.data?.error || err.response?.data?.message || err.message || 'Login failed';
-          set({
-            error: errorMsg,
-            isLoading: false,
-            needsVerification: false,
-          });
-          logger.error('AUTH', 'Login failed', { error: errorMsg });
-          throw err;
-        }
-      },
-
-      // ========== 註冊 ==========
-      register: async (email: string, password: string, firstName?: string, lastName?: string) => {
-        set({ isLoading: true, error: null });
-        logger.info('AUTH', 'Registration attempt', { email });
-
-        try {
-          const response = await api.auth.register(email, password, firstName, lastName);
-          
-          // ✅ 註冊成功後，不自動登錄
-          // 清除任何現有的 token 和認證狀態
-          tokenManager.clear();
-
-          // ✅ 保存待驗證郵箱，但不設置認證狀態
-          set({
-            user: null, // 不設置用戶，因為未驗證
-            token: null, // 不保存 token
-            refreshToken: null, // 不保存 refresh token
-            isAuthenticated: false, // ✅ 保持未認證狀態
-            isLoading: false,
-            lastRefreshTime: null,
-            pendingEmail: email, // ✅ 保存待驗證郵箱
-            needsVerification: true, // ✅ 標記需要驗證
-          });
-
-          logger.info('AUTH', 'Registration successful - awaiting email verification', { email });
-        } catch (err: any) {
-          const errorMsg = err.response?.data?.error || err.response?.data?.message || err.message || 'Registration failed';
-          set({
-            error: errorMsg,
-            isLoading: false,
-            pendingEmail: null,
-          });
-          logger.error('AUTH', 'Registration failed', { error: errorMsg });
-          throw err;
-        }
-      },
-
-      // ========== 角色選擇 ==========
-      selectRole: async (role: 'client' | 'coach' | 'both' | 'admin') => {
-        set({ isLoading: true, error: null });
-        logger.info('AUTH', 'Role selection', { role });
-
-        try {
-          const response = await api.auth.selectRole(role);
-          const { user, token, refreshToken } = response.data;
-
-          if (!token || !refreshToken) {
-            throw new Error('Missing token or refreshToken in response');
+        selectRole: async (role) => {
+          set({ isAuthLoading: true, isLoading: true, error: null });
+          try {
+            const res = await authService.selectRole(role === 'both' ? 'coach' : role);
+            const token = res.token ?? res.data?.token ?? get().token;
+            const rawUser = res.user ?? res.data?.user;
+            const normalizedUser: StoreUser | null = rawUser
+              ? {
+                  id: rawUser.id,
+                  email: rawUser.email,
+                  roles: [String(rawUser.role ?? role).toLowerCase()],
+                  role: String(rawUser.role ?? role).toLowerCase(),
+                  registrationComplete: true,
+                  name:
+                    `${rawUser.firstName ?? ''} ${rawUser.lastName ?? ''}`.trim() || rawUser.email,
+                  firstName: rawUser.firstName ?? null,
+                  lastName: rawUser.lastName ?? null,
+                  avatar: rawUser.avatar ?? null,
+                }
+              : null;
+            if (!token || !normalizedUser) throw new Error('INVALID_USER_DATA');
+            await _applyAuthResult(token, normalizedUser);
+          } catch (error: any) {
+            set({ error: error?.response?.data?.error || error?.message || 'Role selection failed' });
+            throw error;
+          } finally {
+            set({ isAuthLoading: false, isLoading: false });
           }
+        },
 
-          tokenManager.setAccessToken(token);
-          tokenManager.setRefreshToken(refreshToken);
+        /**
+         * 初始化狀態同步 (用於頁面重新整理)
+         */
+        fetchMe: async () => {
+          const token = get().token;
+          if (!token) return;
 
-          set({
-            user: toStoreUser(user),
-            token,
-            refreshToken,
-            isLoading: false,
-            lastRefreshTime: Date.now(),
-          });
+          try {
+            const me = await authService.getMe();
+            const userData: StoreUser = {
+              id: me.id,
+              email: me.email,
+              roles: [String(me.role ?? 'client').toLowerCase()],
+              role: String(me.role ?? 'client').toLowerCase(),
+              registrationComplete: me.registrationComplete === true,
+              name: `${me.firstName ?? ''} ${me.lastName ?? ''}`.trim() || me.email,
+              firstName: me.firstName ?? null,
+              lastName: me.lastName ?? null,
+              avatar: me.avatar ?? null,
+            };
 
-          if (user) {
-            logger.info('AUTH', 'Role selected successfully', { userId: user.id, role });
-          }
-        } catch (err: any) {
-          const errorMsg = err.response?.data?.error || err.response?.data?.message || err.message || 'Role selection failed';
-          set({
-            error: errorMsg,
-            isLoading: false,
-          });
-          logger.error('AUTH', 'Role selection failed', { error: errorMsg });
-          throw err;
-        }
-      },
+            // 使用統一的守衛標準，確保從 API 拿到的資料也是乾淨的
+            if (!validateUserData(userData)) {
+              console.error('[AuthStore] fetchMe: Data corruption detected. Forcing logout.');
+              get().logout();
+              return;
+            }
 
-      // ========== 獲取當前用戶 ==========
-      fetchMe: async () => {
-        set({ isLoading: true, error: null });
-
-        try {
-          const response = await api.auth.me();
-          const data = response.data as any;
-          if (!data) {
-            throw new Error('No user data in response');
-          }
-
-          const registrationComplete = data.registrationComplete === true;
-          const nextStep = typeof data.nextStep === 'number' ? data.nextStep : null;
-          set({
-            user: toStoreUser(data as UserPayload),
-            isAuthenticated: true,
-            isLoading: false,
-            registrationComplete,
-            nextStep,
-          });
-          logger.info('AUTH', registrationComplete ? 'User fetched successfully' : 'User fetched, registration incomplete', {
-            userId: data.id,
-            registrationComplete,
-            nextStep,
-          });
-        } catch (err: any) {
-          set({
-            isLoading: false,
-            error: err.message,
-          });
-          logger.error('AUTH', 'fetchMe failed', { error: err.message });
-
-          if (err.response?.status === 401) {
+            set({
+              user: userData as StoreUser,
+              isAuthenticated: true,
+              registrationComplete: userData.registrationComplete,
+              nextStep: typeof me.nextStep === 'number' ? me.nextStep : null,
+            });
+          } catch (error) {
+            console.error('[AuthStore] fetchMe failed:', error);
             get().logout();
           }
-        }
-      },
+        },
 
-      // ========== 登出 ==========
-      logout: async () => {
-        try {
-          // 嘗試調用後端登出 API（如果有 token）
-          const token = tokenManager.getAccessToken();
-          if (token) {
-            try {
-              const response = await fetch('/api/auth/logout', {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${token}`,
-                },
-                credentials: 'include',
-              });
-              
-              // 即使 API 調用失敗，也繼續清除本地狀態
-              if (!response.ok) {
-                console.warn('[AUTH] Logout API call failed, but clearing local state anyway');
-              }
-            } catch (apiError) {
-              // API 調用失敗不影響登出流程（JWT 無狀態）
-              console.warn('[AUTH] Logout API error:', apiError);
-            }
+        initializeAuth: async () => {
+          set({ isAuthLoading: true, isLoading: true });
+          try {
+            await get().fetchMe();
+          } finally {
+            set({ isAuthLoading: false, isLoading: false });
           }
-        } catch (error) {
-          console.error('[AUTH] Logout error:', error);
-        } finally {
-          // 無論 API 調用是否成功，都清除本地狀態
-          tokenManager.clear();
-          
-          // 清除 React Query 緩存
-          const { queryClient } = await import('@/lib/queryClient');
-          queryClient.clear();
-          
-          set({
-            user: null,
-            token: null,
-            refreshToken: null,
-            isAuthenticated: false,
+        },
+
+        /**
+         * 徹底登出
+         */
+        logout: () => {
+          set({ 
+            token: null, 
+            user: null, 
+            isAuthenticated: false, 
+            registrationComplete: false,
+            nextStep: null,
             error: null,
             needsVerification: false,
-            lastRefreshTime: null,
-            pendingEmail: null,
-            registrationComplete: true,
-            nextStep: null,
           });
-          
-          logger.info('AUTH', 'Logout successful');
-        }
-      },
-
-      // ========== 檢查認證狀態 ==========
-      checkAuth: async () => {
-        const token = tokenManager.getAccessToken();
-        const refreshToken = tokenManager.getRefreshToken();
-
-        if (!token || !refreshToken) {
-          set({ isAuthenticated: false });
-          return;
-        }
-
-        set({ token, refreshToken });
-
-        try {
-          await get().fetchMe();
-          logger.info('AUTH', 'Authentication check passed');
-        } catch {
-          get().logout();
-          logger.warn('AUTH', 'Authentication check failed');
-        }
-      },
-    }),
+          localStorage.removeItem('pendingCoachRef');
+          localStorage.removeItem('coachRefRetryCount');
+        },
+      };
+    },
     {
       name: 'fitbuddy-auth-store',
       partialize: (state) => ({
         token: state.token,
-        refreshToken: state.refreshToken,
         user: state.user,
-        // 持久化注冊狀態，使頁面重載後仍能判斷是否需要繼續完成注冊
+        isAuthenticated: state.isAuthenticated,
         registrationComplete: state.registrationComplete,
-        nextStep: state.nextStep,
       }),
-      onRehydrateStorage: () => (state) => {
-        // 驗證並保留原始的 login 函數引用
-        if (state) {
-          const originalLogin = state.login;
-          if (typeof originalLogin === 'function') {
-            // 創建包裝函數確保正確的執行上下文
-            state.login = async (email: string, password: string) => {
-              console.log('[login wrapper] Calling with email type:', typeof email, 'password type:', typeof password);
-              console.log('[login wrapper] Email value:', email);
-              console.log('[login wrapper] Password value length:', password?.length || 0);
-              // 使用 call 確保正確的 this 上下文
-              return originalLogin.call(state, email, password);
-            };
-            console.log('[Zustand] Rehydrated state - login function wrapped');
-          } else {
-            console.warn('[Zustand] Rehydrated state - login is not a function:', typeof originalLogin);
-          }
-        }
-      },
     }
   )
 );
 
 export default useAuthStore;
-
