@@ -463,7 +463,7 @@ function isTransientPoolError(err: unknown): boolean {
   );
 }
 
-// 🔧 驗證 JWT Token 中間件（支持 Bearer token 和 Session 混合）
+// 🔧 驗證 JWT Token 中間件（JWT-first，Session fallback 為 legacy 相容）
 export const verifyJWT: RequestHandler = async (req: any, res, next) => {
   try {
     console.log('[verifyJWT] ===== START =====');
@@ -474,39 +474,7 @@ export const verifyJWT: RequestHandler = async (req: any, res, next) => {
     console.log('[verifyJWT] Has session:', !!req.session);
     console.log('[verifyJWT] Is authenticated (session):', req.isAuthenticated ? req.isAuthenticated() : false);
 
-    // 1. 優先檢查 Session 認證（向後兼容）
-    if (req.isAuthenticated && req.isAuthenticated()) {
-      console.log('[verifyJWT] ✅ Session authentication passed');
-      // Session 認證成功，設置 req.user（如果還沒有）
-      if (!req.user && req.session?.passport?.user) {
-        console.log('[verifyJWT] Restoring user from session...');
-        // 從 session 中恢復用戶信息
-        const userId = req.session.passport.user;
-        const result = await pool.query(
-          `SELECT id, email, first_name, last_name, role FROM users WHERE id = $1 LIMIT 1`,
-          [userId]
-        );
-        if (result.rows.length > 0) {
-          req.user = {
-            id: result.rows[0].id,
-            email: result.rows[0].email,
-            firstName: result.rows[0].first_name,
-            lastName: result.rows[0].last_name,
-            role: result.rows[0].role,
-            claims: {
-              sub: result.rows[0].id,
-              email: result.rows[0].email,
-              role: result.rows[0].role,
-            },
-          };
-          console.log('[verifyJWT] ✅ User restored from session:', req.user.id);
-        }
-      }
-      console.log('[verifyJWT] ===== END (Session) =====');
-      return next();
-    }
-
-    // 2. 檢查 Bearer Token（JWT）
+    // 1. JWT-first：先檢查 Bearer Token（主要認證路徑）
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
       console.log('[verifyJWT] 🔑 Bearer token found, verifying...');
@@ -587,6 +555,36 @@ export const verifyJWT: RequestHandler = async (req: any, res, next) => {
       return next();
     }
 
+    // 2. Legacy fallback：僅為相容舊流程，後續應移除
+    if (req.isAuthenticated && req.isAuthenticated()) {
+      console.warn('[verifyJWT] ⚠️ Legacy session fallback path used');
+      if (!req.user && req.session?.passport?.user) {
+        console.log('[verifyJWT] Restoring user from session...');
+        const userId = req.session.passport.user;
+        const result = await pool.query(
+          `SELECT id, email, first_name, last_name, role FROM users WHERE id = $1 LIMIT 1`,
+          [userId]
+        );
+        if (result.rows.length > 0) {
+          req.user = {
+            id: result.rows[0].id,
+            email: result.rows[0].email,
+            firstName: result.rows[0].first_name,
+            lastName: result.rows[0].last_name,
+            role: result.rows[0].role,
+            claims: {
+              sub: result.rows[0].id,
+              email: result.rows[0].email,
+              role: result.rows[0].role,
+            },
+          };
+          console.log('[verifyJWT] ✅ User restored from session:', req.user.id);
+        }
+      }
+      console.log('[verifyJWT] ===== END (Session Fallback) =====');
+      return next();
+    }
+
     // 3. 兩種認證方式都失敗
     console.log('[verifyJWT] ❌ No valid authentication found');
     console.log('[verifyJWT] ===== END (Unauthorized) =====');
@@ -601,12 +599,7 @@ export const verifyJWT: RequestHandler = async (req: any, res, next) => {
   }
 };
 
-// ✅ 統一認證中間件：優先使用 session，其次使用 Bearer JWT
+// ✅ 統一認證中間件：JWT-first（Session fallback 在 verifyJWT 內部保留）
 export const isAuthenticated: RequestHandler = (req, res, next) => {
-  // 先走 session（原有邏輯）
-  if (req.isAuthenticated && req.isAuthenticated()) {
-    return next();
-  }
-  // 若沒有 session，改用 JWT 驗證
   return verifyJWT(req as any, res as any, next);
 };
