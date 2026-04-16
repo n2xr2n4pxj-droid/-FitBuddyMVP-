@@ -867,17 +867,43 @@ router.post('/auth/refresh', async (req: any, res: any) => {
 // ==========================================
 router.post('/auth/logout', async (req: any, res: any) => {
   try {
-    const token = req.headers.authorization?.split(' ')[1];
-
-    if (!token) {
-      return res.status(401).json({ error: 'Not authenticated' });
+    // 1) 清理 Passport session user 綁定（若存在）
+    if (typeof req.logout === 'function') {
+      await new Promise<void>((resolve) => {
+        req.logout((logoutErr: Error | null) => {
+          if (logoutErr) {
+            console.error('[logout] req.logout failed:', logoutErr);
+          }
+          resolve();
+        });
+      });
     }
 
-    // JWT 無狀態，登出只需前端清 token
-    res.json({ success: true, message: 'Logged out successfully' });
+    // 2) 清理 server-side session（若存在）
+    if (req.session) {
+      await new Promise<void>((resolve) => {
+        req.session.destroy((destroyErr: Error | null) => {
+          if (destroyErr) {
+            console.error('[logout] session destroy failed:', destroyErr);
+          }
+          resolve();
+        });
+      });
+    }
+
+    // 3) 清理 session cookie（屬性需與 getSession 設定對齊）
+    res.clearCookie('connect.sid', {
+      httpOnly: true,
+      secure: config.app.env === 'production',
+      sameSite: 'lax',
+      path: '/',
+    });
+
+    // 4) JWT 無狀態語意維持不變：前端仍需清 token
+    return res.json({ success: true, message: 'Logged out successfully' });
   } catch (error) {
     console.error('Error logging out:', error);
-    res.status(500).json({ error: 'Failed to logout' });
+    return res.status(500).json({ success: false, error: 'Failed to logout' });
   }
 });
 
