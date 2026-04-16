@@ -324,3 +324,46 @@ case "schedule":
 4. **收斂 DB schema 策略**：決定 Drizzle 或 Prisma 單一真實來源，移除分岔。  
 5. **建立錯誤契約標準**：後端統一 `{ errorCode, message, logId }`，前端單一解析層。  
 6. **補測試空白區**：notifications、analytics、nutrition plans 的 API/前端互動測試。  
+
+---
+
+## Session Audit（2026-04-16）
+
+### 範圍
+- `server/replitAuth.ts`
+- `server/routes.ts`
+- `server/routes/auth.ts`
+
+### 結論摘要
+1. **目前是 JWT 主流程 + Session fallback 的混合模式**  
+   - `/auth/login`、`/auth/me`、`/auth/refresh` 走 JWT 路徑。  
+   - `verifyJWT` 仍保留 session-first fallback（先 `req.isAuthenticated()`，再驗 Bearer token）。  
+2. **Session 行為仍影響 production 穩定性**  
+   - 若 session 路徑仍有流量，deploy/restart 後 session persistence 會直接影響登入體驗。  
+3. **identity source 有分岔風險**  
+   - `/auth/me`（JWT）與 `/api/auth/user`（session）可能回傳不同 freshness 的 user 狀態。  
+4. **已完成第一階段止血**  
+   - 已改用 `connect-pg-simple` 並重用既有 Postgres `pool`。  
+   - 啟動 log 已確認出現 `[session] sessions table ready`，且無 MemoryStore warning。  
+
+### 主要診斷證據
+- `server/replitAuth.ts`：`app.use(getSession())` + `app.use(passport.session())`  
+- `server/replitAuth.ts`：`verifyJWT` 先判斷 `req.isAuthenticated()`，session 通過即放行  
+- `server/routes/auth.ts`：`/auth/logout` 目前為 JWT 無狀態語意，尚未主動清理 session  
+- `server/routes.ts`：`/api/auth/user` 使用 `req.isAuthenticated()` 判斷身份  
+
+### 已完成修正（Phase 1）
+- `fix: replace MemoryStore with connect-pg-simple (reuse existing pool)`  
+  - 在 `getSession()` 加入 `store: new PgStore({ pool, tableName: "sessions", createTableIfMissing: true, ttl })`
+  - 保留既有 cookie 安全設定：`httpOnly` / `secure` / `sameSite: "lax"` / `maxAge`
+  - `npm run check` 通過、後端可正常啟動
+
+### 後續行動（Phase 2：架構收斂）
+1. **`verifyJWT` 收斂為 JWT-first**  
+   - 保留 session fallback 於短期過渡，但降級為次要路徑並加註 deprecation。  
+2. **淘汰 `/api/auth/user` session identity path**  
+   - 前端逐步統一走 `/auth/me`。  
+3. **補齊 logout 一致性**  
+   - 在仍保留 session 期間，`/auth/logout` 加入 `req.session.destroy()` / `req.logout()` 清理。  
+4. **完成後再評估是否移除 session fallback**  
+   - 僅保留 OAuth 必要暫存用途（若流程實際需要）。  
