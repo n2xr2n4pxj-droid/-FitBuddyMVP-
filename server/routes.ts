@@ -101,50 +101,73 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api", exercisesRoutes);
 
   // Auth routes
-  app.get("/api/auth/user", async (req: any, res) => {
+  // Deprecated compatibility endpoint.
+  // New clients should use GET /api/auth/me (JWT path).
+  app.get("/api/auth/user", isAuthenticated, async (req: any, res) => {
     try {
-      if (!req.isAuthenticated || !req.isAuthenticated() || !req.user) {
-        return res.json(null);
-      }
+      console.warn("[DEPRECATED] GET /api/auth/user is deprecated, use /api/auth/me");
+      res.setHeader("Deprecation", "true");
+      res.setHeader("Sunset", "Wed, 31 Dec 2026 23:59:59 GMT");
+      res.setHeader("Link", '</api/auth/me>; rel="successor-version"');
 
-      // 從數據庫重新查詢用戶信息，確保獲取最新的 role 字段
       const userId = req.user?.claims?.sub || req.user?.id;
       if (!userId) {
-        return res.json(null);
+        return res.status(401).json({ error: "Not authenticated" });
       }
 
-      // 從數據庫查詢最新的用戶信息（包括 role）
       const { pool } = await import("./db");
       const result = await pool.query(
-        `SELECT id, email, first_name, last_name, role, created_at FROM users WHERE id = $1 LIMIT 1`,
+        `SELECT id, email, first_name, last_name, role, avatar, created_at,
+                age, gender, height, weight, activity_level, goal, tdee
+         FROM users WHERE id = $1 LIMIT 1`,
         [userId]
       );
 
       if (result.rows.length === 0) {
-        return res.json(null);
+        return res.status(401).json({ error: "User not found" });
       }
 
       const dbUser = result.rows[0];
-      console.log('[GET /api/auth/user] Raw DB user:', dbUser);
-      
-      // 轉換字段名從 snake_case 到 camelCase，並確保包含 role
+
+      const hasTDEEBasicInfo = !!(
+        dbUser.age !== null &&
+        dbUser.age !== undefined &&
+        dbUser.gender !== null &&
+        dbUser.gender !== undefined &&
+        dbUser.height !== null &&
+        dbUser.height !== undefined &&
+        dbUser.weight !== null &&
+        dbUser.weight !== undefined
+      );
+      const hasTDEEComplete = !!(
+        hasTDEEBasicInfo &&
+        dbUser.activity_level &&
+        dbUser.goal &&
+        dbUser.tdee
+      );
+      const hasRole = !!(dbUser.role === "COACH" || hasTDEEComplete);
+      const registrationComplete = hasTDEEComplete;
+      const nextStep = !hasTDEEBasicInfo ? 3 : !hasTDEEComplete ? 4 : null;
+
       const user = {
         id: dbUser.id,
         email: dbUser.email,
         firstName: dbUser.first_name,
         lastName: dbUser.last_name,
-        role: dbUser.role, // 確保包含 role 字段
+        avatar: dbUser.avatar || null,
+        role: dbUser.role,
         createdAt: dbUser.created_at,
+        registrationComplete,
+        hasTDEEComplete,
+        hasRole,
+        nextStep,
       };
-      
-      console.log('[GET /api/auth/user] Returning user with role:', user.role);
-      console.log('[GET /api/auth/user] Full user object:', JSON.stringify(user, null, 2));
-      
-      // 禁用緩存，確保總是返回最新數據
-      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-      res.setHeader('Pragma', 'no-cache');
-      res.setHeader('Expires', '0');
-      
+
+      // 禁用緩存，盡量保持與 /auth/me 一致的即時性
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
+
       res.json(user);
     } catch (error) {
       console.error("Error fetching user:", error);

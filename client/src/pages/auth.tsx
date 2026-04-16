@@ -76,10 +76,10 @@ export default function AuthPage() {
         setNeedsVerification(false);
 
         // 使認證查詢失效，強制重新獲取用戶信息
-        await queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+        await queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
         
         // 等待查詢更新
-        await queryClient.refetchQueries({ queryKey: ["/api/auth/user"] });
+        await queryClient.refetchQueries({ queryKey: ["/api/auth/me"] });
 
         toast({
           title: "登入成功",

@@ -155,7 +155,6 @@ export function useLogin() {
     onSuccess: (data) => {
       // 登入成功後，使認證相關查詢失效，強制重新獲取
       queryClient.invalidateQueries({ queryKey: ['/api/auth/me'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/auth/user'] });
     },
     onError: (error: any) => {
       console.error('Login error:', error);
