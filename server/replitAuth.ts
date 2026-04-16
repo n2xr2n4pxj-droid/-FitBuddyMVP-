@@ -1,5 +1,6 @@
 import type { Express, RequestHandler } from "express";
 import session from "express-session";
+import connectPgSimple from "connect-pg-simple";
 import passport from "passport";
 import { Strategy as LocalStrategy } from "passport-local";
 import crypto from "crypto";
@@ -11,6 +12,7 @@ import { eq } from "drizzle-orm";
 import { config } from "./config/env";
 
 // --- Local email/password auth for development ---
+const PgStore = connectPgSimple(session);
 
 // OWASP 2023：PBKDF2-HMAC-SHA512 最低 120,000 次迭代
 const PBKDF2_ITERATIONS = 120_000;
@@ -43,7 +45,8 @@ export function verifyPassword(password: string, stored?: string | null): boolea
 }
 
 export function getSession() {
-  const sessionTtl = 7 * 24 * 60 * 60 * 1000; // 1 week
+  const sessionTtlMs = 7 * 24 * 60 * 60 * 1000; // 1 week
+  const sessionTtlSeconds = 7 * 24 * 60 * 60;
   
   // 從環境變量管理系統讀取，如果未設置則使用開發環境默認值（僅開發環境）
   const sessionSecret = config.session.secret || (config.app.env === 'production' ? '' : 'dev-session-secret');
@@ -51,8 +54,18 @@ export function getSession() {
   if (!sessionSecret && config.app.env === 'production') {
     throw new Error('SESSION_SECRET must be set in production environment');
   }
+
+  const sessionStore = new PgStore({
+    pool,
+    tableName: "sessions",
+    createTableIfMissing: true,
+    ttl: sessionTtlSeconds,
+  });
+
+  console.info("[session] sessions table ready");
   
   return session({
+    store: sessionStore,
     secret: sessionSecret,
     resave: false,
     saveUninitialized: false,
@@ -60,7 +73,7 @@ export function getSession() {
       httpOnly: true,
       secure: config.app.env === 'production', // 生產環境使用 HTTPS
       sameSite: "lax",
-      maxAge: sessionTtl,
+      maxAge: sessionTtlMs,
     },
   });
 }
