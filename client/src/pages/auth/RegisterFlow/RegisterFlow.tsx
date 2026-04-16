@@ -425,7 +425,6 @@ export default function RegisterFlow(): JSX.Element {
           return;
         }
 
-        localStorage.setItem('fitbuddy_token', payload.token);
         tokenManager.setAccessToken(payload.token);
         if (payload.refreshToken) {
           tokenManager.setRefreshToken(payload.refreshToken);
@@ -438,7 +437,6 @@ export default function RegisterFlow(): JSX.Element {
         } catch (meErr) {
           console.error('刷新用戶狀態失敗:', meErr);
           tokenManager.clear();
-          localStorage.removeItem('fitbuddy_token');
           alert('無法完成登入，請稍後使用登入頁登入');
           setLocation('/login');
           return;

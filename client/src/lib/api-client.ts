@@ -1,12 +1,9 @@
-import axios, { AxiosInstance, AxiosError, AxiosResponse } from 'axios';
+import axios, { AxiosError, type AxiosInstance, type AxiosRequestConfig } from 'axios';
 import { logger } from './logger';
 import { offlineManager } from './offline-manager';
-import type {
-  AuthApiResponse,
-  MePayload,
-} from '@/types/auth-payload';
+import { createAppApiError, extractErrorPayload, type AppApiError } from './api-error';
+import type { AuthApiResponse, MePayload } from '@/types/auth-payload';
 
-// ========== 類型定義 ==========
 export type AuthResponse = AuthApiResponse;
 
 export interface RefreshTokenResponse {
@@ -21,50 +18,65 @@ export interface ApiErrorResponse {
   message?: string;
 }
 
-/** GET /api/auth/me 回傳格式（含註冊狀態） */
 export type MeResponse = MePayload;
 
-// Logger 已從 './logger' 導入
-
-// ========== Token 管理 ==========
 const ACCESS_TOKEN_KEY = 'fitbuddy_access_token';
 const REFRESH_TOKEN_KEY = 'fitbuddy_refresh_token';
+const LEGACY_ACCESS_TOKEN_KEY = 'fitbuddy_token';
+const LEGACY_AUTH_TOKEN_KEY = 'authToken';
+const DEFAULT_ORIGIN = 'http://localhost:3000';
+const DEV = import.meta.env.DEV;
+
+function devLog(message: string, data?: unknown) {
+  if (!DEV) return;
+  console.debug(`[apiClient] ${message}`, data ?? '');
+}
+
+function migrateLegacyAccessToken() {
+  if (typeof window === 'undefined') return;
+
+  const current = localStorage.getItem(ACCESS_TOKEN_KEY);
+  const legacyFitbuddy = localStorage.getItem(LEGACY_ACCESS_TOKEN_KEY);
+  const legacyAuth = localStorage.getItem(LEGACY_AUTH_TOKEN_KEY);
+  const fallback = current || legacyFitbuddy || legacyAuth;
+
+  if (fallback && !current) {
+    localStorage.setItem(ACCESS_TOKEN_KEY, fallback);
+  }
+
+  localStorage.removeItem(LEGACY_ACCESS_TOKEN_KEY);
+  localStorage.removeItem(LEGACY_AUTH_TOKEN_KEY);
+}
 
 export const tokenManager = {
-  getAccessToken: () => localStorage.getItem(ACCESS_TOKEN_KEY),
+  getAccessToken: () => {
+    migrateLegacyAccessToken();
+    return localStorage.getItem(ACCESS_TOKEN_KEY);
+  },
   setAccessToken: (token: string) => localStorage.setItem(ACCESS_TOKEN_KEY, token),
-  
   getRefreshToken: () => localStorage.getItem(REFRESH_TOKEN_KEY),
   setRefreshToken: (token: string) => localStorage.setItem(REFRESH_TOKEN_KEY, token),
-  
   clear: () => {
     localStorage.removeItem(ACCESS_TOKEN_KEY);
     localStorage.removeItem(REFRESH_TOKEN_KEY);
-    // 同時清除舊的 authToken（向後兼容）
-    localStorage.removeItem('authToken');
+    localStorage.removeItem(LEGACY_ACCESS_TOKEN_KEY);
+    localStorage.removeItem(LEGACY_AUTH_TOKEN_KEY);
   },
-
-  // ✨ 企業級：檢查 token 是否過期
   isAccessTokenExpired: () => {
-    const token = localStorage.getItem(ACCESS_TOKEN_KEY);
+    const token = tokenManager.getAccessToken();
     if (!token) return true;
 
     try {
       const payload = JSON.parse(atob(token.split('.')[1]));
-      const expirationTime = payload.exp * 1000; // 轉換為毫秒
-      return Date.now() >= expirationTime - 60000; // 提前 1 分鐘刷新
+      const expirationTime = payload.exp * 1000;
+      return Date.now() >= expirationTime - 60000;
     } catch {
       return true;
     }
   },
 };
 
-// ========== Base URL 正規化 ==========
-// VITE_API_BASE_URL 可能是：(1) 完整 server URL (2) 相對路徑如 /api (3) 未設置
-// 若為相對路徑或未設置，使用 origin 或 fallback，避免拼出 /api/api/... 錯誤
-const DEFAULT_ORIGIN = 'http://localhost:3000';
-
-function getApiBaseURL(): string {
+export function getApiBaseURL(): string {
   const raw = import.meta.env.VITE_API_BASE_URL;
   if (!raw || typeof raw !== 'string' || raw.trim() === '') {
     return DEFAULT_ORIGIN;
@@ -73,36 +85,24 @@ function getApiBaseURL(): string {
   if (/^https?:\/\//i.test(trimmed)) {
     return trimmed.replace(/\/$/, '');
   }
-  // 相對路徑（如 /api）→ 使用當前頁面 origin，避免 /api + /api/auth/refresh = /api/api/auth/refresh
   if (typeof window !== 'undefined') {
     return window.location.origin;
   }
   return DEFAULT_ORIGIN;
 }
 
-// ========== Axios 實例 ==========
 export const apiClient: AxiosInstance = axios.create({
   baseURL: getApiBaseURL(),
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 30000, // 30 秒超時
+  timeout: 30000,
 });
 
-// ========== 企業級：Token 刷新管理 ==========
 let isRefreshing = false;
-let refreshSubscribers: ((token: string) => void)[] = [];
+let refreshPromise: Promise<string> | null = null;
+let pendingRefreshWaiters = 0;
 
-const onRefreshed = (token: string) => {
-  refreshSubscribers.forEach((callback) => callback(token));
-  refreshSubscribers = [];
-};
-
-const addRefreshSubscriber = (callback: (token: string) => void) => {
-  refreshSubscribers.push(callback);
-};
-
-// ========== 企業級：重試邏輯 ==========
 interface RetryConfig {
   maxRetries: number;
   retryDelay: number;
@@ -111,84 +111,136 @@ interface RetryConfig {
 
 const DEFAULT_RETRY_CONFIG: RetryConfig = {
   maxRetries: 3,
-  retryDelay: 1000, // 1 秒
-  backoffMultiplier: 2, // 指數退避
+  retryDelay: 1000,
+  backoffMultiplier: 2,
 };
 
-const shouldRetry = (error: any, retryCount: number, config: RetryConfig) => {
-  // 不重試 4xx 錯誤（除了 429 和 503）
-  if (error.response?.status >= 400 && error.response?.status < 500) {
+const shouldRetry = (error: AxiosError, retryCount: number, config: RetryConfig) => {
+  if (error.response?.status !== undefined && error.response.status >= 400 && error.response.status < 500) {
     if (![429, 503].includes(error.response.status)) {
       return false;
     }
   }
 
-  // 不重試認證錯誤（除了 token 過期）
-  if (error.response?.status === 401 && !error.response?.data?.error?.includes('token')) {
+  if (
+    error.response?.status === 401 &&
+    !String(error.response?.data ?? '').toLowerCase().includes('token')
+  ) {
     return false;
   }
 
   return retryCount < config.maxRetries;
 };
 
-/** 註冊前公開查詢，不應帶過期 access 或觸發 refresh（避免未登入／註冊頁被導去 /login） */
 function isPublicUsernameCheckRequest(config: { url?: string }): boolean {
-  const u = config.url ?? "";
-  return u.includes("/api/v1/users/check-username");
+  const url = config.url ?? '';
+  return url.includes('/api/v1/users/check-username');
 }
 
-// ========== 請求攔截器 ==========
+async function performTokenRefresh(): Promise<string> {
+  const refreshToken = tokenManager.getRefreshToken();
+  if (!refreshToken) {
+    throw createAppApiError({ message: 'No refresh token', statusCode: 401 });
+  }
+
+  const response = await axios.post<RefreshTokenResponse>(
+    `${getApiBaseURL()}/api/auth/refresh`,
+    { refreshToken }
+  );
+
+  tokenManager.setAccessToken(response.data.token);
+  tokenManager.setRefreshToken(response.data.refreshToken);
+  return response.data.token;
+}
+
+async function getRefreshedTokenSingleFlight(context?: { url?: string; source?: 'request' | 'response' }): Promise<string> {
+  if (!refreshPromise) {
+    isRefreshing = true;
+    devLog('refresh started', {
+      source: context?.source,
+      url: context?.url,
+    });
+    refreshPromise = performTokenRefresh()
+      .then((token) => {
+        devLog('refresh done — releasing queue', {
+          queueLength: pendingRefreshWaiters,
+        });
+        return token;
+      })
+      .catch((refreshErr) => {
+        devLog('refresh failed — logging out', refreshErr);
+        throw refreshErr;
+      })
+      .finally(() => {
+        isRefreshing = false;
+        refreshPromise = null;
+        pendingRefreshWaiters = 0;
+      });
+    return refreshPromise;
+  }
+
+  pendingRefreshWaiters += 1;
+  devLog('queued — waiting for refresh', {
+    source: context?.source,
+    url: context?.url,
+    queueLength: pendingRefreshWaiters,
+  });
+  try {
+    return await refreshPromise;
+  } finally {
+    pendingRefreshWaiters = Math.max(0, pendingRefreshWaiters - 1);
+  }
+}
+
+export function migrateTokenKeys(): void {
+  migrateLegacyAccessToken();
+}
+
 apiClient.interceptors.request.use(
   async (config) => {
     const publicUsernameCheck = isPublicUsernameCheckRequest(config);
 
-    // ✨ 企業級：在發送請求前檢查 token 是否即將過期
-    if (!publicUsernameCheck && tokenManager.isAccessTokenExpired()) {
-      const refreshToken = tokenManager.getRefreshToken();
-      if (refreshToken) {
-        try {
-          const response = await axios.post<RefreshTokenResponse>(
-            `${getApiBaseURL()}/api/auth/refresh`,
-            { refreshToken }
-          );
-          tokenManager.setAccessToken(response.data.token);
-          tokenManager.setRefreshToken(response.data.refreshToken);
-          
-          // ✅ 更新當前請求的 Authorization header
-          config.headers.Authorization = `Bearer ${response.data.token}`;
-        } catch (error) {
-          // 刷新失敗，清除 token
-          tokenManager.clear();
-          if (typeof window !== 'undefined') {
-            window.location.href = '/login';
-          }
+    if (!publicUsernameCheck && tokenManager.isAccessTokenExpired() && tokenManager.getRefreshToken()) {
+      try {
+        const refreshedToken = await getRefreshedTokenSingleFlight({
+          source: 'request',
+          url: config.url,
+        });
+        config.headers = config.headers || {};
+        config.headers.Authorization = `Bearer ${refreshedToken}`;
+      } catch {
+        tokenManager.clear();
+        if (typeof window !== 'undefined') {
+          window.location.href = '/login';
         }
       }
     }
 
-    // 添加 Authorization header（公開 check-username 不附帶 token）
     if (!publicUsernameCheck) {
       const token = tokenManager.getAccessToken();
       if (token) {
+        config.headers = config.headers || {};
         config.headers.Authorization = `Bearer ${token}`;
       }
     }
 
-    // ✨ 企業級：添加請求 ID 用於追蹤
-    config.headers['X-Request-ID'] = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    config.headers = config.headers || {};
+    config.headers['X-Request-ID'] = `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
 
     return config;
   },
   (error) => Promise.reject(error)
 );
 
-// ========== 響應攔截器 ==========
 apiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
-    const originalRequest = error.config as any;
+    const originalRequest = (error.config ?? {}) as AxiosRequestConfig & {
+      _retry?: boolean;
+      _retryCount?: number;
+      headers?: Record<string, string>;
+    };
 
-    // ✨ 企業級：詳細的錯誤日誌
     logger.error('API Client', 'API Error', {
       status: error.response?.status,
       message: error.message,
@@ -198,7 +250,6 @@ apiClient.interceptors.response.use(
       timestamp: new Date().toISOString(),
     });
 
-    // ========== 401 錯誤處理 - Token 過期 ==========
     if (
       error.response?.status === 401 &&
       !originalRequest.url?.includes('/auth/login') &&
@@ -207,88 +258,52 @@ apiClient.interceptors.response.use(
       !originalRequest._retry
     ) {
       originalRequest._retry = true;
-
-      if (!isRefreshing) {
-        isRefreshing = true;
-
-        try {
-          const refreshToken = tokenManager.getRefreshToken();
-          if (!refreshToken) {
-            throw new Error('No refresh token');
-          }
-
-          // 調用 refresh 端點
-          const response = await axios.post<RefreshTokenResponse>(
-            `${getApiBaseURL()}/api/auth/refresh`,
-            { refreshToken }
-          );
-
-          const newAccessToken = response.data.token;
-          const newRefreshToken = response.data.refreshToken;
-
-          tokenManager.setAccessToken(newAccessToken);
-          tokenManager.setRefreshToken(newRefreshToken);
-
-          // 通知所有等待的請求
-          onRefreshed(newAccessToken);
-
-          // ✅ 更新原始請求的 Authorization header
-          originalRequest.headers = originalRequest.headers || {};
-          originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
-
-          // 重試原始請求
-          return apiClient(originalRequest);
-        } catch (refreshError: any) {
-          logger.error('API Client', 'Token refresh failed', {
-            error: refreshError.message,
-            timestamp: new Date().toISOString(),
-          });
-
-          // 刷新失敗，清除 token 並重定向到登入
-          tokenManager.clear();
-          if (typeof window !== 'undefined') {
-            window.location.href = '/login';
-          }
-          return Promise.reject(refreshError);
-        } finally {
-          isRefreshing = false;
-        }
-      }
-
-      // 如果正在刷新，等待新 token
-      return new Promise((resolve) => {
-        addRefreshSubscriber((token: string) => {
-          originalRequest.headers.Authorization = `Bearer ${token}`;
-          resolve(apiClient(originalRequest));
+      try {
+        const newAccessToken = await getRefreshedTokenSingleFlight({
+          source: 'response',
+          url: originalRequest.url,
         });
-      });
+        originalRequest.headers = originalRequest.headers || {};
+        originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+        return apiClient(originalRequest);
+      } catch (refreshError) {
+        logger.error('API Client', 'Token refresh failed', {
+          error: refreshError instanceof Error ? refreshError.message : String(refreshError),
+          timestamp: new Date().toISOString(),
+        });
+
+        tokenManager.clear();
+        if (typeof window !== 'undefined') {
+          window.location.href = '/login';
+        }
+        return Promise.reject(normalizeApiError(refreshError));
+      }
     }
 
-    // ========== 離線支持 ==========
-    // 如果用戶離線且請求失敗，將請求添加到離線隊列
     if (!offlineManager.getIsOnline() && originalRequest) {
       offlineManager.addToQueue(
         originalRequest.method || 'GET',
         originalRequest.url || '',
         originalRequest.data
       );
-      
+
       logger.warn('API Client', 'Request queued for offline processing', {
         method: originalRequest.method,
         url: originalRequest.url,
       });
-      
-      // 返回一個特殊的錯誤，讓調用者知道請求已排隊
-      return Promise.reject({
-        ...error,
-        isQueued: true,
-        message: 'Request queued for offline processing',
-      });
+
+      return Promise.reject(
+        createAppApiError({
+          message: 'Request queued for offline processing',
+          statusCode: error.response?.status,
+          isQueued: true,
+          details: error,
+        })
+      );
     }
 
-    // ========== 其他 5xx 錯誤 - 重試 ==========
     if (
-      !originalRequest._retryCount &&
+      originalRequest._retryCount === undefined &&
       error.response?.status !== undefined &&
       (error.response.status === 429 || error.response.status >= 500)
     ) {
@@ -312,15 +327,58 @@ apiClient.interceptors.response.use(
       return apiClient(originalRequest);
     }
 
-    return Promise.reject(error);
+    return Promise.reject(normalizeApiError(error));
   }
 );
 
-// ========== API 方法 ==========
+export function normalizeApiError(error: unknown): AppApiError {
+  if (error instanceof Error && error.name === 'AppApiError') {
+    return error as AppApiError;
+  }
+
+  if (axios.isAxiosError(error)) {
+    const payload = extractErrorPayload(error.response?.data);
+    return createAppApiError({
+      message: payload.message || error.message || 'API request failed',
+      statusCode: error.response?.status,
+      errorCode: payload.errorCode,
+      logId: payload.logId,
+      details: payload.details ?? error.response?.data,
+    });
+  }
+
+  if (error instanceof Error) {
+    return createAppApiError({ message: error.message, details: error });
+  }
+
+  return createAppApiError({ message: 'Unknown API error', details: error });
+}
+
+async function requestData<T>(config: AxiosRequestConfig): Promise<T> {
+  try {
+    const response = await apiClient.request<T>(config);
+    return response.data;
+  } catch (error) {
+    throw normalizeApiError(error);
+  }
+}
+
+export const request = {
+  get: <T>(url: string, config?: AxiosRequestConfig) =>
+    requestData<T>({ ...config, method: 'GET', url }),
+  post: <T>(url: string, data?: unknown, config?: AxiosRequestConfig) =>
+    requestData<T>({ ...config, method: 'POST', url, data }),
+  put: <T>(url: string, data?: unknown, config?: AxiosRequestConfig) =>
+    requestData<T>({ ...config, method: 'PUT', url, data }),
+  patch: <T>(url: string, data?: unknown, config?: AxiosRequestConfig) =>
+    requestData<T>({ ...config, method: 'PATCH', url, data }),
+  delete: <T>(url: string, config?: AxiosRequestConfig) =>
+    requestData<T>({ ...config, method: 'DELETE', url }),
+};
+
 export const api = {
   auth: {
     login: (email: string, password: string) => {
-      // ✅ 嚴格類型驗證：確保 email 和 password 是字符串
       if (typeof email !== 'string' || typeof password !== 'string') {
         const error = new Error('Email and password must be strings');
         logger.error('API Client', 'Invalid login parameters', {
@@ -332,11 +390,9 @@ export const api = {
         return Promise.reject(error);
       }
 
-      // ✅ 確保是字符串並去除空白（在驗證後）
       const emailStr = email.trim();
       const passwordStr = password.trim();
 
-      // ✅ 驗證不是空字符串
       if (!emailStr || !passwordStr) {
         const error = new Error('Email and password cannot be empty');
         logger.error('API Client', 'Empty login parameters', {
@@ -347,22 +403,20 @@ export const api = {
         return Promise.reject(error);
       }
 
-      // ✅ 確保請求體格式正確：直接傳遞 email 和 password，不要嵌套
-      const requestBody = { 
-        email: emailStr, 
-        password: passwordStr 
+      const requestBody = {
+        email: emailStr,
+        password: passwordStr,
       };
-      
-      logger.info('API Client', 'Login request', { 
-        url: '/api/auth/login', 
+
+      logger.info('API Client', 'Login request', {
+        url: '/api/auth/login',
         bodyKeys: Object.keys(requestBody),
         emailLength: emailStr.length,
         passwordLength: passwordStr.length,
         hasPassword: !!passwordStr,
         timestamp: new Date().toISOString(),
       });
-      
-      // ✅ 確保使用正確的 Content-Type 和數據格式
+
       return apiClient.post<AuthResponse>('/api/auth/login', requestBody, {
         headers: {
           'Content-Type': 'application/json',
@@ -391,7 +445,6 @@ export const api = {
     me: () =>
       apiClient.get<MeResponse>('/api/auth/me'),
 
-    // ✨ 企業級：刷新 token
     refresh: (refreshToken: string) =>
       apiClient.post<RefreshTokenResponse>('/api/auth/refresh', { refreshToken }),
 
@@ -401,7 +454,6 @@ export const api = {
     },
   },
 
-  // 其他 API 端點...
   meals: {
     list: (date?: string) => apiClient.get('/api/meals', { params: { date } }),
     create: (data: any) => apiClient.post('/api/meals', data),

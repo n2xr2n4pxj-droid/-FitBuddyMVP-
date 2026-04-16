@@ -19,7 +19,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useDebounce } from '@/hooks/useDebounce';
-import { apiClient } from '@/lib/api-client';
+import { request } from '@/lib/api-client';
 import { regInputClass, regPrimaryButtonClass, regStepSubtitleClass, regStepTitleClass } from './register-ui';
 
 // ========== 類型定義 ==========
@@ -85,11 +85,10 @@ const usernameSchema = z
 async function checkUsernameAvailability(
   username: string
 ): Promise<UsernameCheckResponse> {
-  const { data } = await apiClient.get<UsernameCheckResponse>(
+  return request.get<UsernameCheckResponse>(
     '/api/v1/users/check-username',
     { params: { username } }
   );
-  return data;
 }
 
 // ========== Step1Username 組件 ==========

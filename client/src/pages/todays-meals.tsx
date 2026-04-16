@@ -9,7 +9,7 @@ import { WeeklyChart } from "@/components/weekly-chart";
 import { WorkoutList } from "@/components/workout-list";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createQueryFn, apiRequest } from "@/lib/queryClient";
-import { apiClient } from "@/lib/api-client";
+import { request } from "@/lib/api-client";
 
 export default function TodaysMeals() {
   const { user, isAuthenticated } = useAuth();
@@ -80,8 +80,7 @@ export default function TodaysMeals() {
       const url = `/api/meals/${today}`;
       console.log('🔵 [Frontend] Fetching meals from:', url);
       try {
-        const response = await apiClient.get(url);
-        const data = response.data;
+        const data = await request.get<Meal[]>(url);
         console.log('🔵 [Frontend] Meals fetched:', data);
         return data;
       } catch (error: any) {

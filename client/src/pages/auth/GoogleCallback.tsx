@@ -14,6 +14,7 @@ export const GoogleCallback: React.FC = () => {
 
     const params = new URLSearchParams(window.location.search);
     const code = params.get('code');
+    const flow = (params.get('flow') as 'login' | 'register') || 'login';
 
     if (!code) {
       toast.error('找不到授權碼，請重新嘗試登入');
@@ -21,7 +22,7 @@ export const GoogleCallback: React.FC = () => {
       return;
     }
 
-    loginWithOAuth(code)
+    loginWithOAuth(code, flow)
       .then(() => {
         navigate('/');
       })

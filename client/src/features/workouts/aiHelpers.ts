@@ -1,4 +1,4 @@
-import { apiClient } from "@/lib/api-client";
+import { request } from "@/lib/api-client";
 import { WorkoutRoutine, RoutineExercise, RoutineSet } from "./types";
 
 // --------------------------- 型別定義 ---------------------------
@@ -94,12 +94,12 @@ export async function requestAiGeneratedRoutine(
 ): Promise<WorkoutRoutine> {
   const { prompt, baseRoutine } = options;
 
-  const res = await apiClient.post<BackendAiRoutineResponse>(
+  const res = await request.post<BackendAiRoutineResponse>(
     "/api/ai/generate-routine",
     { prompt },
   );
 
-  return backendAiRoutineToUI(res.data, baseRoutine);
+  return backendAiRoutineToUI(res, baseRoutine);
 }
 
 /**
@@ -123,7 +123,7 @@ export async function requestAiWorkoutSummary(
       })),
   }));
 
-  const res = await apiClient.post<BackendAiSummaryResponse>(
+  const res = await request.post<BackendAiSummaryResponse>(
     "/api/ai/workout-insight",
     {
       routine,
@@ -131,6 +131,6 @@ export async function requestAiWorkoutSummary(
     },
   );
 
-  return res.data.summary;
+  return res.summary;
 }
 

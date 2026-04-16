@@ -1,37 +1,23 @@
+import { request } from '@/lib/api-client';
+import type { AppApiError } from '@/lib/api-error';
 import { Invitation, InvitationResponse, InvitationTemplate } from '@/types/invitations';
-import { tokenManager } from '@/lib/api-client';
 
 const API_BASE = '/api/v1/invitations';
 
-// ✅ 獲取認證 header 的輔助函數
-const getAuthHeaders = () => {
-  const token = tokenManager.getAccessToken();
-  const headers: HeadersInit = {
-    'Content-Type': 'application/json',
+function errorToInvitationResponse(error: unknown, fallbackMessage: string): InvitationResponse {
+  const apiError = error as Partial<AppApiError>;
+  return {
+    success: false,
+    message: apiError.message || fallbackMessage,
+    error: apiError.message || fallbackMessage,
+    errorCode: apiError.errorCode,
+    logId: apiError.logId,
   };
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-  return headers;
-};
+}
 
 export const invitationService = {
   async getCoachShareToken(): Promise<{ token: string; coachId?: string; expiresIn?: string }> {
-    const response = await fetch(`${API_BASE}/share-token`, {
-      headers: getAuthHeaders(),
-      credentials: 'include',
-    });
-
-    let data: any = null;
-    try {
-      data = await response.json();
-    } catch {
-      data = null;
-    }
-
-    if (!response.ok) {
-      throw new Error(data?.error || data?.message || '獲取教練邀請 token 失敗');
-    }
+    const data = await request.get<{ token: string; coachId?: string; expiresIn?: string }>(`${API_BASE}/share-token`);
 
     if (!data?.token || typeof data.token !== 'string') {
       throw new Error('邀請 token 格式無效');
@@ -56,42 +42,20 @@ export const invitationService = {
     notes?: string
   ): Promise<InvitationResponse> {
     try {
-      const response = await fetch(`${API_BASE}/send`, {
-        method: 'POST',
-        headers: getAuthHeaders(), // ✅ 使用認證 header
-        credentials: 'include',
-        body: JSON.stringify({
-          client_email: clientEmail,
-          client_name: clientName,
-          notes: notes || ''
-        })
+      const data = await request.post<{ message?: string; logId?: string }>(`${API_BASE}/send`, {
+        client_email: clientEmail,
+        client_name: clientName,
+        notes: notes || ''
       });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        // 增強錯誤信息，包含 logId 和 errorCode
-        const error = new Error(data.error || '發送邀請失敗');
-        (error as any).logId = data.logId;
-        (error as any).errorCode = data.errorCode;
-        throw error;
-      }
 
       return {
         success: true,
         message: data.message || '邀請已發送成功',
         data: data,
-        logId: data.logId // 返回 logId 用於追蹤
+        logId: data.logId
       };
-    } catch (error: any) {
-      // 保留 logId 和 errorCode 信息
-      return {
-        success: false,
-        message: error.message || '發送邀請失敗',
-        error: error.message,
-        errorCode: error.errorCode,
-        logId: error.logId // 傳遞 logId 用於錯誤追蹤
-      };
+    } catch (error) {
+      return errorToInvitationResponse(error, '發送邀請失敗');
     }
   },
 
@@ -104,39 +68,8 @@ export const invitationService = {
       const url = status 
         ? `${API_BASE}/coach/list?status=${status}`
         : `${API_BASE}/coach/list`;
+      const data = await request.get<unknown[]>(url);
       
-      console.log('🟡 [invitationService] getInvitationList - URL:', url);
-      console.log('🟡 [invitationService] getInvitationList - Headers:', getAuthHeaders());
-      
-      const response = await fetch(url, {
-        headers: getAuthHeaders(), // ✅ 使用認證 header
-        credentials: 'include'
-      });
-
-      console.log('🟡 [invitationService] getInvitationList - Response status:', response.status);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        let errorData;
-        try {
-          errorData = JSON.parse(errorText);
-        } catch {
-          errorData = { error: errorText };
-        }
-        
-        console.error('❌ [invitationService] getInvitationList failed:', {
-          status: response.status,
-          statusText: response.statusText,
-          error: errorData,
-        });
-        
-        throw new Error(errorData.error || errorData.message || `獲取邀請列表失敗: ${response.status} ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      console.log('✅ [invitationService] getInvitationList - Data received:', data);
-      
-      // 後端返回的數據格式需要轉換為 Invitation 類型
       const invitations: Invitation[] = (Array.isArray(data) ? data : []).map((item: any) => ({
         id: item.id,
         senderId: item.senderId || '',
@@ -152,15 +85,8 @@ export const invitationService = {
         createdAt: item.createdAt || item.created_at,
         respondedAt: item.respondedAt || item.responded_at || undefined,
       }));
-      
-      console.log('✅ [invitationService] getInvitationList - Mapped invitations:', invitations);
       return invitations;
-    } catch (error: any) {
-      console.error('❌ [invitationService] getInvitationList error:', {
-        message: error?.message,
-        stack: error?.stack,
-        name: error?.name,
-      });
+    } catch (error) {
       throw error;
     }
   },
@@ -170,36 +96,19 @@ export const invitationService = {
    * @param code 邀請碼
    */
   async checkInvitationStatus(code: string): Promise<Invitation> {
-    try {
-      const response = await fetch(`${API_BASE}/status/${code}`, {
-        headers: getAuthHeaders(), // ✅ 使用認證 header
-        credentials: 'include'
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || '邀請碼無效或已過期');
-      }
-
-      const data = await response.json();
-      // 後端直接返回邀請對象，格式為 { id, status, client_email, client_name, coach_id }
-      // 需要轉換為 Invitation 格式
-      return {
-        id: data.id,
-        senderId: data.coach_id,
-        senderName: data.client_name || '',
-        receiverEmail: data.client_email,
-        invitationType: 'COACH_TO_CLIENT',
-        status: data.status as any,
-        token: code,
-        expiresAt: '',
-        createdAt: '',
-        ...data
-      };
-    } catch (error: any) {
-      console.error('檢查邀請狀態失敗:', error);
-      throw error;
-    }
+    const data = await request.get<any>(`${API_BASE}/status/${code}`);
+    return {
+      id: data.id,
+      senderId: data.coach_id,
+      senderName: data.client_name || '',
+      receiverEmail: data.client_email,
+      invitationType: 'COACH_TO_CLIENT',
+      status: data.status as any,
+      token: code,
+      expiresAt: '',
+      createdAt: '',
+      ...data
+    };
   },
 
   /**
@@ -216,41 +125,20 @@ export const invitationService = {
     agreeTerms: boolean = true
   ): Promise<InvitationResponse> {
     try {
-      const response = await fetch(`${API_BASE}/accept/${code}`, {
-        method: 'POST',
-        headers: getAuthHeaders(), // ✅ 使用認證 header
-        credentials: 'include',
-        body: JSON.stringify({
-          password,
-          phone: phone || null,
-          agree_terms: agreeTerms
-        })
+      const data = await request.post<any>(`${API_BASE}/accept/${code}`, {
+        password,
+        phone: phone || null,
+        agree_terms: agreeTerms
       });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        // 增強錯誤信息，包含 logId 和 errorCode（如果有的話）
-        const error = new Error(data.error || '接受邀請失敗');
-        if (data.logId) (error as any).logId = data.logId;
-        if (data.errorCode) (error as any).errorCode = data.errorCode;
-        throw error;
-      }
 
       return {
         success: true,
         message: data.message || '賬戶創建成功！',
         data: data,
-        logId: data.logId // 返回 logId（如果有的話）
+        logId: data.logId
       };
-    } catch (error: any) {
-      return {
-        success: false,
-        message: error.message || '接受邀請失敗',
-        error: error.message,
-        errorCode: error.errorCode,
-        logId: error.logId // 傳遞 logId 用於錯誤追蹤
-      };
+    } catch (error) {
+      return errorToInvitationResponse(error, '接受邀請失敗');
     }
   },
 
@@ -260,36 +148,16 @@ export const invitationService = {
    */
   async revokeInvitation(invitationId: string): Promise<InvitationResponse> {
     try {
-      const response = await fetch(`${API_BASE}/${invitationId}`, {
-        method: 'DELETE',
-        headers: getAuthHeaders(), // ✅ 使用認證 header
-        credentials: 'include'
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        // 增強錯誤信息，包含 logId 和 errorCode（如果有的話）
-        const error = new Error(data.error || '撤銷邀請失敗');
-        if (data.logId) (error as any).logId = data.logId;
-        if (data.errorCode) (error as any).errorCode = data.errorCode;
-        throw error;
-      }
+      const data = await request.delete<any>(`${API_BASE}/${invitationId}`);
 
       return {
         success: true,
         message: data.message || '邀請已撤銷',
         data: data,
-        logId: data.logId // 返回 logId（如果有的話）
+        logId: data.logId
       };
-    } catch (error: any) {
-      return {
-        success: false,
-        message: error.message || '撤銷邀請失敗',
-        error: error.message,
-        errorCode: error.errorCode,
-        logId: error.logId // 傳遞 logId 用於錯誤追蹤
-      };
+    } catch (error) {
+      return errorToInvitationResponse(error, '撤銷邀請失敗');
     }
   },
 
@@ -299,36 +167,16 @@ export const invitationService = {
    */
   async resendInvitation(invitationId: string): Promise<InvitationResponse> {
     try {
-      const response = await fetch(`${API_BASE}/resend/${invitationId}`, {
-        method: 'PATCH',
-        headers: getAuthHeaders(), // ✅ 使用認證 header
-        credentials: 'include'
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        // 增強錯誤信息，包含 logId 和 errorCode（如果有的話）
-        const error = new Error(data.error || '重新發送邀請失敗');
-        if (data.logId) (error as any).logId = data.logId;
-        if (data.errorCode) (error as any).errorCode = data.errorCode;
-        throw error;
-      }
+      const data = await request.patch<any>(`${API_BASE}/resend/${invitationId}`);
 
       return {
         success: true,
         message: data.message || '邀請已重新發送',
         data: data,
-        logId: data.logId // 返回 logId（如果有的話）
+        logId: data.logId
       };
-    } catch (error: any) {
-      return {
-        success: false,
-        message: error.message || '重新發送邀請失敗',
-        error: error.message,
-        errorCode: error.errorCode,
-        logId: error.logId // 傳遞 logId 用於錯誤追蹤
-      };
+    } catch (error) {
+      return errorToInvitationResponse(error, '重新發送邀請失敗');
     }
   },
 
@@ -336,23 +184,8 @@ export const invitationService = {
    * 獲取邀請模板列表
    */
   async getInvitationTemplates(): Promise<InvitationTemplate[]> {
-    try {
-      const response = await fetch(`${API_BASE}/templates`, {
-        headers: getAuthHeaders(),
-        credentials: 'include'
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || '獲取模板列表失敗');
-      }
-
-      const data = await response.json();
-      return Array.isArray(data) ? data : [];
-    } catch (error: any) {
-      console.error('獲取模板列表失敗:', error);
-      throw error;
-    }
+    const data = await request.get<InvitationTemplate[]>(`${API_BASE}/templates`);
+    return Array.isArray(data) ? data : [];
   },
 
   /**
@@ -364,25 +197,7 @@ export const invitationService = {
     name: string,
     message: string
   ): Promise<InvitationTemplate> {
-    try {
-      const response = await fetch(`${API_BASE}/templates`, {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        credentials: 'include',
-        body: JSON.stringify({ name, message })
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || '創建模板失敗');
-      }
-
-      return data;
-    } catch (error: any) {
-      console.error('創建模板失敗:', error);
-      throw error;
-    }
+    return request.post<InvitationTemplate>(`${API_BASE}/templates`, { name, message });
   },
 
   /**
@@ -394,25 +209,7 @@ export const invitationService = {
     templateId: string,
     updates: { name?: string; message?: string }
   ): Promise<InvitationTemplate> {
-    try {
-      const response = await fetch(`${API_BASE}/templates/${templateId}`, {
-        method: 'PATCH',
-        headers: getAuthHeaders(),
-        credentials: 'include',
-        body: JSON.stringify(updates)
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || '更新模板失敗');
-      }
-
-      return data;
-    } catch (error: any) {
-      console.error('更新模板失敗:', error);
-      throw error;
-    }
+    return request.patch<InvitationTemplate>(`${API_BASE}/templates/${templateId}`, updates);
   },
 
   /**
@@ -420,20 +217,6 @@ export const invitationService = {
    * @param templateId 模板 ID
    */
   async deleteInvitationTemplate(templateId: string): Promise<void> {
-    try {
-      const response = await fetch(`${API_BASE}/templates/${templateId}`, {
-        method: 'DELETE',
-        headers: getAuthHeaders(),
-        credentials: 'include'
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || '刪除模板失敗');
-      }
-    } catch (error: any) {
-      console.error('刪除模板失敗:', error);
-      throw error;
-    }
+    await request.delete<void>(`${API_BASE}/templates/${templateId}`);
   }
 };

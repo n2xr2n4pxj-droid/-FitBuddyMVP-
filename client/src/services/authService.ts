@@ -6,7 +6,8 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { apiClient, RefreshTokenResponse } from '@/lib/api-client';
+import { request, type RefreshTokenResponse } from '@/lib/api-client';
+import type { AppApiError } from '@/lib/api-error';
 import type { AuthApiResponse, MePayload } from '@/types/auth-payload';
 import { queryClient } from '@/lib/queryClient';
 
@@ -49,87 +50,85 @@ export interface ApplyCoachRefResponse {
 
 /**
  * 認證服務對象
- * 所有方法都使用統一的 apiClient (Axios)
+ * 所有方法都使用統一的 request helper
  */
 export const authService = {
   /**
    * 用戶登入
    */
   async login(credentials: LoginCredentials): Promise<AuthApiResponse> {
-    const response = await apiClient.post<AuthApiResponse>('/api/auth/login', credentials);
-    return response.data;
+    return request.post<AuthApiResponse>('/api/auth/login', credentials);
   },
 
   /**
    * 用戶註冊
    */
   async register(data: RegisterData): Promise<AuthApiResponse> {
-    const response = await apiClient.post<AuthApiResponse>('/api/auth/register', data);
-    return response.data;
+    return request.post<AuthApiResponse>('/api/auth/register', data);
   },
 
   /**
    * 獲取當前用戶信息
    */
   async getMe(): Promise<MePayload> {
-    const response = await apiClient.get<MePayload>('/api/auth/me');
-    return response.data;
+    return request.get<MePayload>('/api/auth/me');
   },
 
   /**
    * 刷新 Access Token
    */
   async refreshToken(refreshToken: string): Promise<RefreshTokenResponse> {
-    const response = await apiClient.post<RefreshTokenResponse>('/api/auth/refresh', {
+    return request.post<RefreshTokenResponse>('/api/auth/refresh', {
       refreshToken,
     });
-    return response.data;
   },
 
   /**
    * 選擇用戶角色
    */
   async selectRole(role: SelectRoleData['role']): Promise<AuthApiResponse> {
-    const response = await apiClient.post<AuthApiResponse>('/api/auth/role-select', { role });
-    return response.data;
+    return request.post<AuthApiResponse>('/api/auth/role-select', { role });
   },
 
   /**
    * 驗證郵箱
    */
   async verifyEmail(token: string): Promise<{ success: boolean; message?: string }> {
-    const response = await apiClient.get<{ success: boolean; message?: string }>(
+    return request.get<{ success: boolean; message?: string }>(
       `/api/auth/verify-email/${token}`
     );
-    return response.data;
   },
 
   /**
    * 重新發送驗證郵件
    */
   async resendVerification(email: string): Promise<{ success: boolean; message?: string }> {
-    const response = await apiClient.post<{ success: boolean; message?: string }>(
+    return request.post<{ success: boolean; message?: string }>(
       '/api/v1/auth/resend-verification',
       { email }
     );
-    return response.data;
   },
 
   /**
    * 檢查郵箱驗證狀態
    */
   async checkEmailVerification(email: string): Promise<{ verified: boolean }> {
-    const response = await apiClient.get<{ verified: boolean }>(
+    return request.get<{ verified: boolean }>(
       `/api/v1/auth/check-verification?email=${encodeURIComponent(email)}`
     );
-    return response.data;
   },
 
   async applyCoachRef(coachRef: string): Promise<ApplyCoachRefResponse> {
-    const response = await apiClient.post<ApplyCoachRefResponse>('/api/auth/apply-coach-ref', {
+    return request.post<ApplyCoachRefResponse>('/api/auth/apply-coach-ref', {
       coachRef,
     });
-    return response.data;
+  },
+
+  async loginWithGoogle(code: string, flow: 'login' | 'register' = 'login'): Promise<AuthApiResponse> {
+    return request.post<AuthApiResponse>('/api/auth/google/callback', {
+      code,
+      flow,
+    });
   },
 
   /**
@@ -174,7 +173,10 @@ export function useRegister() {
       console.error('Registration error:', error);
       
       // 處理用戶已存在的情況
-      if (error?.response?.status === 409 || error?.response?.data?.error === 'USER_ALREADY_EXISTS') {
+      const apiError = error as Partial<AppApiError>;
+      if (
+        apiError.errorCode === 'USER_ALREADY_EXISTS'
+      ) {
         console.log('[useRegister] User already exists, redirecting to /login');
         // 顯示錯誤訊息後重定向到登入頁面
         setTimeout(() => {

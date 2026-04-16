@@ -1,5 +1,5 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
-import { apiClient } from "./api-client";
+import { normalizeApiError, request } from "./api-client";
 
 // ========== 統一使用 Axios 的 Query Function ==========
 type UnauthorizedBehavior = "returnNull" | "throw";
@@ -18,17 +18,17 @@ export const createQueryFn = <T>(options?: {
     const url = queryKey.join("/") as string;
     
     try {
-      const response = await apiClient.get<T>(url);
-      return response.data;
-    } catch (error: any) {
+      return await request.get<T>(url);
+    } catch (error: unknown) {
+      const apiError = normalizeApiError(error);
       // 處理 401 錯誤
-      if (error.response?.status === 401) {
+      if (apiError.statusCode === 401) {
         if (unauthorizedBehavior === "returnNull") {
           return null as T;
         }
         // 否則拋出錯誤（會觸發 React Query 的錯誤處理）
       }
-      throw error;
+      throw apiError;
     }
   };
 };
@@ -42,28 +42,19 @@ export async function apiRequest<T = any>(
   url: string,
   data?: unknown
 ): Promise<T> {
-  try {
-    let response;
-    switch (method) {
-      case "GET":
-        response = await apiClient.get<T>(url);
-        break;
-      case "POST":
-        response = await apiClient.post<T>(url, data);
-        break;
-      case "PUT":
-        response = await apiClient.put<T>(url, data);
-        break;
-      case "PATCH":
-        response = await apiClient.patch<T>(url, data);
-        break;
-      case "DELETE":
-        response = await apiClient.delete<T>(url);
-        break;
-    }
-    return response.data;
-  } catch (error) {
-    throw error;
+  switch (method) {
+    case "GET":
+      return request.get<T>(url);
+    case "POST":
+      return request.post<T>(url, data);
+    case "PUT":
+      return request.put<T>(url, data);
+    case "PATCH":
+      return request.patch<T>(url, data);
+    case "DELETE":
+      return request.delete<T>(url);
+    default:
+      throw new Error(`Unsupported method: ${method}`);
   }
 }
 

@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { apiClient } from '@/lib/api-client';
+import { request } from '@/lib/api-client';
 import {
   Select,
   SelectContent,
@@ -29,6 +29,12 @@ interface Exercise {
   weight?: number;
   restSeconds?: number;
   notes?: string;
+}
+
+interface CoachClient {
+  clientId: string;
+  username: string;
+  email: string;
 }
 
 export default function WorkoutPlanEditor({
@@ -62,9 +68,8 @@ export default function WorkoutPlanEditor({
   const fetchClients = async () => {
     try {
       setLoading(true);
-      const response = await apiClient.get('/api/coaches/clients');
-      const data = response.data;
-      setClients(data.map((c: any) => ({
+      const data = await request.get<CoachClient[]>('/api/coaches/clients');
+      setClients(data.map((c: CoachClient) => ({
         id: c.clientId,
         username: c.username,
         email: c.email,
@@ -132,7 +137,7 @@ export default function WorkoutPlanEditor({
 
     setSubmitting(true);
     try {
-      const response = await apiClient.post('/api/workout-plans', {
+      await request.post('/api/workout-plans', {
         clientId,
         name,
         description: description || null,
@@ -141,8 +146,6 @@ export default function WorkoutPlanEditor({
         duration,
         notes: notes || null,
       });
-
-      const data = response.data;
 
       toast({
         title: '成功',

@@ -1,9 +1,9 @@
 /**
  * 課表 API：與 GET /api/workouts/routines 對接
- * 使用專案既有 apiClient，回傳與 @/features/workouts/types 對齊的 WorkoutRoutine[]
+ * 使用統一 request helper，回傳與 @/features/workouts/types 對齊的 WorkoutRoutine[]
  */
 
-import { apiClient } from "@/lib/api-client";
+import { request } from "@/lib/api-client";
 import type { WorkoutRoutine } from "./types";
 
 export interface GetWorkoutsRoutinesParams {
@@ -35,6 +35,5 @@ export async function getWorkoutsRoutines(
   if (params?.limit != null) searchParams.set("limit", String(params.limit));
   const query = searchParams.toString();
   const url = query ? `/api/workouts/routines?${query}` : "/api/workouts/routines";
-  const res = await apiClient.get<GetWorkoutsRoutinesResponse>(url);
-  return res.data;
+  return request.get<GetWorkoutsRoutinesResponse>(url);
 }

@@ -14,7 +14,7 @@ import { MealForm } from "@/components/meal-form";
 import { WeeklyChart } from "@/components/weekly-chart";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { queryClient, createQueryFn } from "@/lib/queryClient";
-import { apiClient } from "@/lib/api-client";
+import { request } from "@/lib/api-client";
 import { useLocation } from "wouter";
 import { useTodayProgress, useTDEEProfile } from "@/hooks/use-tdee";
 
@@ -90,8 +90,8 @@ export default function Dashboard() {
 
   const loadPersonalBests = async () => {
     try {
-      const response = await apiClient.get('/api/workouts/stats/personal-best');
-      setPersonalBests(response.data);
+      const data = await request.get<any[]>('/api/workouts/stats/personal-best');
+      setPersonalBests(data);
     } catch (error) {
       console.error('Error loading personal bests:', error);
     }
@@ -200,13 +200,9 @@ export default function Dashboard() {
         console.log('[Dashboard] Number of sets being saved:', exercisesData.length);
         console.log('[Dashboard] Max weight:', maxWeight, 'Total sets:', totalSets);
 
-        const response = await apiClient.request({
-          method: method as any,
-          url,
-          data: requestBody,
-        });
-
-        const result = response.data;
+        const result = method === 'PUT'
+          ? await request.put(url, requestBody)
+          : await request.post(url, requestBody);
         console.log('Workout saved:', result);
       }
       // 有氧訓練邏輯
@@ -238,13 +234,9 @@ export default function Dashboard() {
 
         console.log('[Dashboard] Submitting CARDIO workout:', requestBody);
 
-        const response = await apiClient.request({
-          method: method as any,
-          url,
-          data: requestBody,
-        });
-
-        const result = response.data;
+        const result = method === 'PUT'
+          ? await request.put(url, requestBody)
+          : await request.post(url, requestBody);
         console.log('✅ Cardio saved:', result);
       }
 
@@ -274,7 +266,7 @@ export default function Dashboard() {
     if (!confirm('確定要刪除這個訓練記錄嗎？')) return;
 
     try {
-      await apiClient.delete(`/api/workouts/${id}`);
+      await request.delete(`/api/workouts/${id}`);
       // Axios 會自動處理錯誤，如果到這裡說明刪除成功
 
       await loadPersonalBests();
@@ -357,10 +349,8 @@ export default function Dashboard() {
         console.log('📋 Fetching workouts…');
         
         // 先獲取所有訓練
-        const response = await apiClient.get('/api/workouts');
+        const allWorkouts = await request.get<any[]>('/api/workouts');
         
-        // Axios 會自動處理錯誤狀態碼，response.data 已經包含解析後的數據
-        const allWorkouts = response.data;
         console.log(`✅ Fetched ${allWorkouts.length} total workouts`);
         
         // 顯示所有訓練的時間戳

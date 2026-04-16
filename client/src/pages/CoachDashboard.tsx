@@ -11,7 +11,7 @@ import { InvitationList } from '@/components/InvitationList';
 import { InvitationCard } from '@/components/InvitationCard';
 import { InvitationStats } from '@/components/InvitationStats';
 import { InvitationTemplateManager } from '@/components/InvitationTemplateManager';
-import { apiClient } from '@/lib/api-client';
+import { request } from '@/lib/api-client';
 
 interface Client {
   id: string;
@@ -54,11 +54,7 @@ export default function CoachDashboard() {
     queryFn: async () => {
       console.log('🟡 [CoachDashboard] 開始請求客戶列表');
 
-      const response = await apiClient.get('/api/coaches/clients');
-
-      console.log('🟡 [CoachDashboard] 響應狀態:', response.status);
-
-      const data = response.data;
+      const data = await request.get<Client[]>('/api/coaches/clients');
       console.log('✅ [CoachDashboard] 客戶列表加載成功:', data);
       return Array.isArray(data) ? data : [];
     },
@@ -66,7 +62,7 @@ export default function CoachDashboard() {
 
   const handleRemoveClient = async (clientId: string) => {
     try {
-      await apiClient.post('/api/coaches/remove-client', { clientId });
+      await request.post('/api/coaches/remove-client', { clientId });
 
       toast({
         title: '成功',

@@ -7,7 +7,7 @@ import { insertMealSchema, type InsertMeal } from "@shared/schema";
 import type { MealFormData, ServingSizeUnit, FoodSearchResult } from "@/types/meal";
 import { calculateNutrientsForServing, getUSDAStandardValues } from "@/lib/nutrition";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { apiClient } from "@/lib/api-client";
+import { request } from "@/lib/api-client";
 import { useToast } from "@/hooks/use-toast";
 import { isUnauthorizedError } from "@/lib/authUtils";
 import { Button } from "@/components/ui/button";
@@ -58,8 +58,7 @@ export function MealForm() {
   const { data: searchResults = [], isLoading: isSearching, error: searchError } = useQuery<FoodSearchResult[]>({
     queryKey: ["/api/food/search", searchQuery],
     queryFn: async () => {
-      const response = await apiClient.get<FoodSearchResult[]>(`/api/food/search?query=${encodeURIComponent(searchQuery)}`);
-      return response.data;
+      return request.get<FoodSearchResult[]>(`/api/food/search?query=${encodeURIComponent(searchQuery)}`);
     },
     enabled: searchQuery.length >= 2,
   });

@@ -4,7 +4,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { apiClient } from '@/lib/api-client';
+import { request } from '@/lib/api-client';
 import {
   Dialog,
   DialogContent,
@@ -60,11 +60,9 @@ export default function ClientList({ clients, onClientSelect, onRefresh }: Clien
 
     setAdding(true);
     try {
-      const response = await apiClient.post('/api/coaches/add-client', {
+      const data = await request.post<{ error?: string }>('/api/coaches/add-client', {
         clientEmail: clientEmail.trim(),
       });
-
-      const data = response.data;
 
       // Axios 會自動處理錯誤狀態碼，如果到這裡說明請求成功
       if (data?.error) {
@@ -96,8 +94,7 @@ export default function ClientList({ clients, onClientSelect, onRefresh }: Clien
     }
 
     try {
-      const response = await apiClient.post('/api/coaches/remove-client', { clientId });
-      const data = response.data;
+      await request.post('/api/coaches/remove-client', { clientId });
 
       toast({
         title: '成功',

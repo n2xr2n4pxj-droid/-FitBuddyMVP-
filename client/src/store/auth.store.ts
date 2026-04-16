@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { authService } from '@/services/authService';
 import { StoreUser } from '@/types/user';
+import { migrateTokenKeys, tokenManager } from '@/lib/api-client';
 
 /**
  * 認證狀態介面
@@ -22,7 +23,7 @@ interface AuthState {
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, firstName?: string, lastName?: string) => Promise<void>;
   selectRole: (role: 'client' | 'coach' | 'admin' | 'both') => Promise<void>;
-  loginWithOAuth: (oauthToken: string) => Promise<void>;
+  loginWithOAuth: (oauthToken: string, flow?: 'login' | 'register') => Promise<void>;
   fetchMe: () => Promise<void>;
   initializeAuth: () => Promise<void>;
   logout: () => void;
@@ -141,14 +142,14 @@ export const useAuthStore = create<AuthState>()(
         /**
          * OAuth 登入流
          */
-        loginWithOAuth: async (oauthToken) => {
+        loginWithOAuth: async (oauthToken, flow = 'login') => {
           set({ isAuthLoading: true, isLoading: true, error: null });
           try {
             const maybeLoginWithGoogle = (authService as any).loginWithGoogle;
             if (typeof maybeLoginWithGoogle !== 'function') {
               throw new Error('OAUTH_LOGIN_NOT_IMPLEMENTED');
             }
-            const res = await maybeLoginWithGoogle(oauthToken);
+            const res = await maybeLoginWithGoogle(oauthToken, flow);
             const token = res?.token ?? res?.data?.token;
             const rawUser = res?.user ?? res?.data?.user;
             const normalizedUser: StoreUser | null = rawUser
@@ -271,6 +272,12 @@ export const useAuthStore = create<AuthState>()(
         },
 
         initializeAuth: async () => {
+          migrateTokenKeys();
+          const token = tokenManager.getAccessToken();
+          if (token && !get().token) {
+            set({ token });
+          }
+
           set({ isAuthLoading: true, isLoading: true });
           try {
             await get().fetchMe();

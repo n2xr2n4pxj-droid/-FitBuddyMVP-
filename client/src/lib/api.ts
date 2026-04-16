@@ -1,3 +1,6 @@
+import { request } from "@/lib/api-client";
+import type { AppApiError } from "@/lib/api-error";
+
 export interface User {
   id: string;
   name: string;
@@ -393,10 +396,7 @@ export interface WorkoutVolumeWeek {
   totalSets: number;
 }
 
-export interface ApiError {
-  message: string;
-  statusCode: number;
-}
+export type ApiError = AppApiError;
 
 export interface WorkoutInsightResponse {
   summary: string;
@@ -404,98 +404,38 @@ export interface WorkoutInsightResponse {
   suggestions?: string[];
 }
 
-/** 與 api-client 一致：未設 VITE_API_BASE_URL 時在瀏覽器用當前 origin（Vite dev 可走 /api proxy） */
-function getApiFetchBase(): string {
-  const raw = import.meta.env.VITE_API_BASE_URL;
-  if (typeof raw === "string" && raw.trim()) {
-    const t = raw.trim();
-    if (/^https?:\/\//i.test(t)) return t.replace(/\/$/, "");
-    if (typeof window !== "undefined") return window.location.origin;
-  }
-  if (typeof window !== "undefined") return window.location.origin;
-  return "http://localhost:3000";
-}
-
-async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const token =
-    localStorage.getItem("fitbuddy_token") ??
-    localStorage.getItem("fitbuddy_access_token") ??
-    "";
-  const res = await fetch(`${getApiFetchBase()}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options?.headers,
-    },
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    const err: ApiError = { message: text, statusCode: res.status };
-    throw err;
-  }
-
-  if (res.status === 204) {
-    return undefined as T;
-  }
-
-  const text = await res.text();
-  if (!text.trim()) {
-    return undefined as T;
-  }
-  return JSON.parse(text) as T;
-}
-
 export const api = {
   // --- Exercises ---
   searchExercises: (search: string, limit = 20) =>
-    apiFetch<Exercise[]>(
+    request.get<Exercise[]>(
       `/api/exercises?search=${encodeURIComponent(search)}&limit=${limit}`,
     ),
 
   // --- Workout Routines ---
   getUpcomingRoutines: (clientId: string) =>
-    apiFetch<WorkoutRoutine[]>(
+    request.get<WorkoutRoutine[]>(
       `/api/workouts/routines?clientId=${clientId}&upcoming=true`,
     ),
 
   createRoutine: (body: CreateRoutinePayload) =>
-    apiFetch<CreateRoutineResponse>("/api/workouts/routines", {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
+    request.post<CreateRoutineResponse>("/api/workouts/routines", body),
 
   updatePlan: (routineId: string, payload: UpdatePlanPayload) =>
-    apiFetch<PlanDetail>(`/api/workouts/routines/${encodeURIComponent(routineId)}`, {
-      method: "PATCH",
-      body: JSON.stringify(payload),
-    }),
+    request.patch<PlanDetail>(`/api/workouts/routines/${encodeURIComponent(routineId)}`, payload),
 
   deletePlan: (routineId: string) =>
-    apiFetch<void>(`/api/workouts/routines/${encodeURIComponent(routineId)}`, {
-      method: "DELETE",
-    }),
+    request.delete<void>(`/api/workouts/routines/${encodeURIComponent(routineId)}`),
 
   // --- AI ---
   generateRoutine: (clientId: string, prompt: string) =>
-    apiFetch<{ routine: Partial<WorkoutRoutine> }>("/api/ai/generate-routine", {
-      method: "POST",
-      body: JSON.stringify({ clientId, prompt }),
-    }),
+    request.post<{ routine: Partial<WorkoutRoutine> }>("/api/ai/generate-routine", { clientId, prompt }),
 
   getWorkoutInsight: (routine: WorkoutRoutine, completedExercises?: unknown[]) =>
-    apiFetch<WorkoutInsightResponse>("/api/ai/workout-insight", {
-      method: "POST",
-      body: JSON.stringify({ routine, completedExercises }),
-    }),
+    request.post<WorkoutInsightResponse>("/api/ai/workout-insight", { routine, completedExercises }),
 
   // --- Workout Sessions（API 預留，後端即將新增）---
   logWorkoutSession: (body: CreateSessionBody) =>
-    apiFetch<{ sessionId: string; totalVolume: number }>("/api/workouts/sessions", {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
+    request.post<{ sessionId: string; totalVolume: number }>("/api/workouts/sessions", body),
 
   getWorkoutSessions: (params?: { limit?: number; from?: string; to?: string }) => {
     const queryParams = new URLSearchParams();
@@ -503,7 +443,7 @@ export const api = {
     if (params?.from) queryParams.set("from", params.from);
     if (params?.to) queryParams.set("to", params.to);
     const query = queryParams.toString();
-    return apiFetch<WorkoutSession[]>(
+    return request.get<WorkoutSession[]>(
       `/api/workouts/sessions/my${query ? `?${query}` : ""}`,
     );
   },
@@ -512,7 +452,7 @@ export const api = {
     api.getWorkoutSessions({ from, to }),
 
   getWorkoutSessionDetail: (sessionId: string) =>
-    apiFetch<WorkoutSessionDetail>(`/api/workouts/sessions/${sessionId}`),
+    request.get<WorkoutSessionDetail>(`/api/workouts/sessions/${sessionId}`),
 
   // Coach 查學員訓練
   getClientWorkouts: (clientId: string, from?: string, to?: string) => {
@@ -520,44 +460,36 @@ export const api = {
     if (from) params.set("from", from);
     if (to) params.set("to", to);
     const query = params.toString();
-    return apiFetch<WorkoutSession[]>(
+    return request.get<WorkoutSession[]>(
       `/api/coach/clients/${clientId}/workouts${query ? `?${query}` : ""}`,
     );
   },
 
   // --- Nutrition Plans（API 預留，後端即將新增）---
   getMyNutritionPlans: (status = "active") =>
-    apiFetch<NutritionPlan[]>(`/api/nutrition/plans/my?status=${status}`),
+    request.get<NutritionPlan[]>(`/api/nutrition/plans/my?status=${status}`),
 
   createNutritionPlan: (body: Omit<NutritionPlan, "id"> & { clientId: string }) =>
-    apiFetch<{ planId: string }>("/api/nutrition/plans", {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
+    request.post<{ planId: string }>("/api/nutrition/plans", body),
 
   // --- Nutrition Logs ---
   logNutrition: (body: NutritionLogBody) =>
-    apiFetch<NutritionLog>("/api/nutrition/logs", {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
+    request.post<NutritionLog>("/api/nutrition/logs", body),
 
   getTodayNutritionLogs: (date: string) =>
-    apiFetch<DayNutritionOverview>(`/api/nutrition/logs/my?date=${encodeURIComponent(date)}`),
+    request.get<DayNutritionOverview>(`/api/nutrition/logs/my?date=${encodeURIComponent(date)}`),
 
   deleteNutritionLog: (id: string) =>
-    apiFetch<void>(`/api/nutrition/logs/${encodeURIComponent(id)}`, {
-      method: "DELETE",
-    }),
+    request.delete<void>(`/api/nutrition/logs/${encodeURIComponent(id)}`),
 
   // --- Coach clients ---
-  getMyClients: () => apiFetch<User[]>("/api/coach/clients"),
+  getMyClients: () => request.get<User[]>("/api/coach/clients"),
 
   // --- Client coach assignment ---
-  getMyCoach: () => apiFetch<MyCoachResponse>("/api/coach-client/my-coach"),
+  getMyCoach: () => request.get<MyCoachResponse>("/api/coach-client/my-coach"),
 
   // --- Trainer learner list ---
-  getMyLearners: () => apiFetch<LearnerListItem[]>("/api/coach-client/my-learners"),
+  getMyLearners: () => request.get<LearnerListItem[]>("/api/coach-client/my-learners"),
 
   // --- Trainer view learner workouts ---
   getLearnerWorkoutSessions: (
@@ -569,79 +501,66 @@ export const api = {
       queryParams.set("limit", String(params.limit));
     }
     const query = queryParams.toString();
-    return apiFetch<WorkoutSession[]>(
+    return request.get<WorkoutSession[]>(
       `/api/workouts/sessions/learner/${encodeURIComponent(learnerId)}${query ? `?${query}` : ""}`,
     );
   },
 
   getLearnerWorkoutSessionDetail: (learnerId: string, sessionId: string) =>
-    apiFetch<WorkoutSessionDetail>(
+    request.get<WorkoutSessionDetail>(
       `/api/workouts/sessions/learner/${encodeURIComponent(learnerId)}/${encodeURIComponent(sessionId)}`,
     ),
 
   submitSessionFeedback: (sessionId: string, content: string) =>
-    apiFetch<Pick<SessionFeedback, "id" | "content" | "createdAt" | "updatedAt">>(
+    request.post<Pick<SessionFeedback, "id" | "content" | "createdAt" | "updatedAt">>(
       `/api/workouts/sessions/${encodeURIComponent(sessionId)}/feedback`,
-      {
-        method: "POST",
-        body: JSON.stringify({ content }),
-      }
+      { content }
     ),
 
   getSessionFeedback: (sessionId: string) =>
-    apiFetch<SessionFeedback[]>(`/api/workouts/sessions/${encodeURIComponent(sessionId)}/feedback`),
+    request.get<SessionFeedback[]>(`/api/workouts/sessions/${encodeURIComponent(sessionId)}/feedback`),
 
   getLearnerDashboardOverview: () =>
-    apiFetch<LearnerDashboardOverview>(`/api/dashboard/learner/overview`),
+    request.get<LearnerDashboardOverview>(`/api/dashboard/learner/overview`),
 
   // --- Notifications ---
   getNotificationPreferences: () =>
-    apiFetch<NotificationPreferences>("/api/notifications/preferences"),
+    request.get<NotificationPreferences>("/api/notifications/preferences"),
 
   updateNotificationPreferences: (
     patch: Partial<
       Omit<NotificationPreferences, "userId">
     >,
   ) =>
-    apiFetch<NotificationPreferences>("/api/notifications/preferences", {
-      method: "PUT",
-      body: JSON.stringify(patch),
-    }),
+    request.put<NotificationPreferences>("/api/notifications/preferences", patch),
 
   savePushSubscription: (payload: PushSubscriptionInput) =>
-    apiFetch<{ success: boolean; subscription?: { id: string; endpoint: string } }>(
+    request.post<{ success: boolean; subscription?: { id: string; endpoint: string } }>(
       "/api/notifications/push-subscriptions",
-      {
-        method: "POST",
-        body: JSON.stringify(payload),
-      },
+      payload,
     ),
 
   deletePushSubscription: (endpoint: string) =>
-    apiFetch<{ success: boolean }>("/api/notifications/push-subscriptions", {
-      method: "DELETE",
-      body: JSON.stringify({ endpoint }),
+    request.delete<{ success: boolean }>("/api/notifications/push-subscriptions", {
+      data: { endpoint },
     }),
 
   sendTestPush: () =>
-    apiFetch<{ success: boolean }>("/api/notifications/test-push", {
-      method: "POST",
-    }),
+    request.post<{ success: boolean }>("/api/notifications/test-push"),
 
   getNotifications: (params?: { limit?: number; cursor?: string | null }) => {
     const query = new URLSearchParams();
     if (typeof params?.limit === "number") query.set("limit", String(params.limit));
     if (params?.cursor) query.set("cursor", params.cursor);
     const qs = query.toString();
-    return apiFetch<NotificationPageResult>(`/api/notifications/my${qs ? `?${qs}` : ""}`);
+    return request.get<NotificationPageResult>(`/api/notifications/my${qs ? `?${qs}` : ""}`);
   },
 
-  getUnreadCount: () => apiFetch<{ count: number }>("/api/notifications/unread-count"),
+  getUnreadCount: () => request.get<{ count: number }>("/api/notifications/unread-count"),
 
   markNotificationRead: (id: string) =>
-    apiFetch<{ id: string; isRead: boolean; readAt: string | null }>(
+    request.post<{ id: string; isRead: boolean; readAt: string | null }>(
       `/api/notifications/${encodeURIComponent(id)}/read`,
-      { method: "POST" },
     ),
 
   // ==========================================
@@ -652,27 +571,22 @@ export const api = {
     if (from) q.set("from", from);
     if (to) q.set("to", to);
     const qs = q.toString();
-    return apiFetch<BodyCompositionLog[]>(
+    return request.get<BodyCompositionLog[]>(
       `/api/analytics/body-composition/${encodeURIComponent(userId)}${qs ? `?${qs}` : ""}`,
     );
   },
 
   addBodyComposition: (data: AddBodyCompositionInput) =>
-    apiFetch<BodyCompositionLog>("/api/analytics/body-composition", {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
+    request.post<BodyCompositionLog>("/api/analytics/body-composition", data),
 
   deleteBodyComposition: (logId: string) =>
-    apiFetch<void>(`/api/analytics/body-composition/${encodeURIComponent(logId)}`, {
-      method: "DELETE",
-    }),
+    request.delete<void>(`/api/analytics/body-composition/${encodeURIComponent(logId)}`),
 
   getWorkoutVolume: (userId: string, weeks?: number) => {
     const q = new URLSearchParams();
     if (typeof weeks === "number") q.set("weeks", String(weeks));
     const qs = q.toString();
-    return apiFetch<WorkoutVolumeWeek[]>(
+    return request.get<WorkoutVolumeWeek[]>(
       `/api/analytics/workout-volume/${encodeURIComponent(userId)}${qs ? `?${qs}` : ""}`,
     );
   },
@@ -681,37 +595,33 @@ export const api = {
   // Phase D：Plans API（/api/plans/*）
   // ==========================================
   // Learner：取得自己的計劃（指派 + 自建）
-  getMyPlans: () => apiFetch<PlanSummary[]>("/api/plans/my"),
+  getMyPlans: () => request.get<PlanSummary[]>("/api/plans/my"),
 
   // 任意用戶：取得某個計劃的完整內容（需在後端通過擁有權/指派權驗證）
   getPlanDetail: (routineId: string) =>
-    apiFetch<PlanDetail>(`/api/plans/${encodeURIComponent(routineId)}`),
+    request.get<PlanDetail>(`/api/plans/${encodeURIComponent(routineId)}`),
 
   // Trainer：取得自己建立的所有 routine（可用於指派）
-  getAvailablePlans: () => apiFetch<PlanSummary[]>("/api/plans/available"),
+  getAvailablePlans: () => request.get<PlanSummary[]>("/api/plans/available"),
 
   // Trainer：指派（upsert）計劃給指定 learner
   assignPlan: (routineId: string, learnerId: string, note?: string) =>
-    apiFetch<{ success: true }>(`/api/plans/assign`, {
-      method: "POST",
-      body: JSON.stringify({ routineId, learnerId, note: note ?? null }),
-    }),
+    request.post<{ success: true }>(`/api/plans/assign`, { routineId, learnerId, note: note ?? null }),
 
   // Trainer：取消指派
   unassignPlan: (learnerId: string, routineId: string) =>
-    apiFetch<{ success: true }>(
+    request.delete<{ success: true }>(
       `/api/plans/assign/${encodeURIComponent(learnerId)}/${encodeURIComponent(routineId)}`,
-      { method: "DELETE" },
     ),
 
   // Trainer：查詢此 learner 已被指派的 routineIds（用於判斷按鈕狀態）
   getAssignedRoutineIdsForLearner: (learnerId: string) =>
-    apiFetch<{ routineIds: string[] }>(
+    request.get<{ routineIds: string[] }>(
       `/api/plans/assignments/${encodeURIComponent(learnerId)}`
     ).then((r) => r.routineIds),
 
   getClientNutritionLogs: (clientId: string, date: string) =>
-    apiFetch<DayNutritionOverview>(
+    request.get<DayNutritionOverview>(
       `/api/coach/clients/${encodeURIComponent(clientId)}/nutrition/logs?date=${encodeURIComponent(date)}`,
     ),
 };
