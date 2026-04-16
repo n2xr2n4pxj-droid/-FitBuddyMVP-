@@ -551,13 +551,23 @@ export const verifyJWT: RequestHandler = async (req: any, res, next) => {
         email: req.user.email,
         role: req.user.role,
       });
+      // 可觀測性：JWT 主路徑只在非 production 輸出 debug 結構化 log
+      if (config.app.env !== "production") {
+        console.debug(JSON.stringify({
+          event: "auth_verified",
+          authPath: "jwt_path",
+          userId: req.user?.id ?? decoded.sub ?? "unknown",
+          url: req.path,
+          method: req.method,
+          ts: new Date().toISOString(),
+        }));
+      }
       console.log("[verifyJWT] ===== END (JWT) =====");
       return next();
     }
 
     // 2. Legacy fallback：僅為相容舊流程，後續應移除
     if (req.isAuthenticated && req.isAuthenticated()) {
-      console.warn('[verifyJWT] ⚠️ Legacy session fallback path used');
       if (!req.user && req.session?.passport?.user) {
         console.log('[verifyJWT] Restoring user from session...');
         const userId = req.session.passport.user;
@@ -581,6 +591,15 @@ export const verifyJWT: RequestHandler = async (req: any, res, next) => {
           console.log('[verifyJWT] ✅ User restored from session:', req.user.id);
         }
       }
+      // 可觀測性：session fallback 在 production 保留 warn，供後續統計淘汰
+      console.warn(JSON.stringify({
+        event: "auth_session_fallback",
+        authPath: "session_fallback_path",
+        userId: req.user?.id ?? req.session?.passport?.user ?? "unknown",
+        url: req.path,
+        method: req.method,
+        ts: new Date().toISOString(),
+      }));
       console.log('[verifyJWT] ===== END (Session Fallback) =====');
       return next();
     }
