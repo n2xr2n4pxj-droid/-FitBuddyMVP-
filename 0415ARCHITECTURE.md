@@ -10,7 +10,7 @@
 - `client`：前端應用（React + Vite）
 - `server`：後端 API（Express + TypeScript）
 - `shared`：前後端共享 schema/type
-- `drizzle`、`prisma`：雙 ORM/Schema 資產並存（Drizzle 為主，Prisma 仍保留）
+- `drizzle`：單一 ORM/Schema 真實來源（Prisma 已移除）
 - `e2e`、`tests`：整合測試 / E2E
 
 ### 技術棧識別
@@ -27,7 +27,7 @@
 - 資料請求：`axios`、`@tanstack/react-query`
 - 後端：`express`、`jsonwebtoken`、`passport`、`drizzle-orm`
 - UI：`@radix-ui/*`、`tailwindcss`
-- DB：`@neondatabase/serverless`、`drizzle-kit`、`prisma`
+- DB：`@neondatabase/serverless`、`drizzle-kit`
 - 測試：`@playwright/test`
 
 ---
@@ -125,7 +125,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   - `workout_sessions` -> `session_exercises` -> `session_sets`
   - `coach_clients` 連接 coach/client
 
-> 另有 `prisma/schema.prisma`，與 Drizzle schema 在角色 enum/資料模型上存在不一致，屬於架構分岔風險。
+> Prisma schema 與 Prisma 依賴已移除；目前以 Drizzle schema 作為唯一真實來源。
 
 ### 後端環境變數（彙整）
 | 類別 | 變數 |
@@ -321,7 +321,7 @@ case "schedule":
 1. **（已完成）統一 API 客戶端層**：`api.ts` 以 `request` facade 統一 HTTP 呼叫；token key、錯誤正規化、retry/refresh 與並發 401 單飛機制集中於 `api-client.ts`。  
 2. **清理認證與路由遺留**：確認唯一入口路由（wouter），淘汰舊 `auth-*` pages 與重複 route config。  
 3. **完成註冊流程 TODO**：補齊 `RegisterFlow` 驗證/錯誤顯示，避免流程中斷。  
-4. **收斂 DB schema 策略**：決定 Drizzle 或 Prisma 單一真實來源，移除分岔。  
+4. **（已完成）收斂 DB schema 策略**：已定版 Drizzle 為單一真實來源，Prisma schema/依賴已移除。  
 5. **建立錯誤契約標準**：後端統一 `{ errorCode, message, logId }`，前端單一解析層。  
 6. **補測試空白區**：notifications、analytics、nutrition plans 的 API/前端互動測試。  
 
@@ -367,3 +367,34 @@ case "schedule":
    - 在仍保留 session 期間，`/auth/logout` 加入 `req.session.destroy()` / `req.logout()` 清理。  
 4. **完成後再評估是否移除 session fallback**  
    - 僅保留 OAuth 必要暫存用途（若流程實際需要）。  
+
+### Task 5 開始條件 Checklist（移除 session fallback 前）
+
+> Task 5 目標：`refactor(auth): remove session fallback from verifyJWT`
+>  
+> 原則：先以真實流量證明 fallback 幾乎不再被使用，再移除兼容分支。
+
+- [ ] **Task 2~4 已完成且已部署到目標環境**
+  - `/api/auth/user` 已標示 deprecated，前端主路徑已統一到 `/auth/me`
+  - `/auth/logout` 已同時清理 JWT + session
+  - `verifyJWT` 已有 `auth_verified` / `auth_session_fallback` 結構化 log
+- [ ] **已完成至少 3~7 天觀測窗口（依流量選擇）**
+  - 每日可取得 fallback 次數與總驗證次數
+  - 觀測期間有涵蓋平日尖峰與低峰流量
+- [ ] **fallback 使用量達標**
+  - `auth_session_fallback` 佔比 < 1%（建議接近 0%）
+  - 最近 24~48 小時無集中 fallback 尖峰
+- [ ] **關鍵流程回歸驗證完成**
+  - 登入後主流程（Dashboard / 受保護 API）僅使用 Bearer JWT 可正常運作
+  - 註冊後補流程（`/auth/me` 相關狀態）無 session 依賴
+  - 教練端與學員端核心頁面無 fallback 命中
+- [ ] **OAuth 行為確認**
+  - Google OAuth callback 若仍需 session 暫存，已有獨立註記與保留邊界
+  - 移除 `verifyJWT` fallback 不會影響 callback 完成後的 JWT 流程
+- [ ] **風險控制與回滾方案就緒**
+  - 可在 5~10 分鐘內回滾到上一版（保留 fallback）
+  - 上線後已安排 24~48 小時 401 錯誤率監控
+- [ ] **技術驗收條件（Task 5）**
+  - 受保護 API 未帶 Bearer token 一律回 401
+  - `/api/auth/user` 不再作為身份來源（移除或固定返回 deprecated 錯誤）
+  - `npm run check` 通過，且無新增 lint/type error
