@@ -1,3 +1,4 @@
+import ProtectedRoute from "@/routes/ProtectedRoute";
 import ClientDashboard from "@/pages/client/ClientDashboard";
 import NutritionPage from "@/pages/client/NutritionPage";
 import WorkoutHistory from "@/components/workout/WorkoutHistory";
@@ -35,15 +36,17 @@ export default function ClientRouter({
   switch (tab) {
     case "dashboard":
       return (
-        <ClientDashboard
-          onStartWorkout={onStartWorkout}
-          onOpenWorkoutTab={onOpenWorkoutTab}
-          onOpenPlansTab={onOpenPlansTab}
-          onOpenProgress={onOpenProgress}
-          onOpenSessionDetail={onOpenSessionDetail}
-          onStartCustomWorkout={onStartCustomWorkout}
-          onLogFood={onLogFood}
-        />
+        <ProtectedRoute requiredRoles={["USER", "COACH"]}>
+          <ClientDashboard
+            onStartWorkout={onStartWorkout}
+            onOpenWorkoutTab={onOpenWorkoutTab}
+            onOpenPlansTab={onOpenPlansTab}
+            onOpenProgress={onOpenProgress}
+            onOpenSessionDetail={onOpenSessionDetail}
+            onStartCustomWorkout={onStartCustomWorkout}
+            onLogFood={onLogFood}
+          />
+        </ProtectedRoute>
       );
     case "workout":
       return (

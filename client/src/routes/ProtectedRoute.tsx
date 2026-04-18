@@ -5,8 +5,13 @@ import { normalizeRole, isCoach, isClient, isAdmin } from '@/types/auth';
 import { useAuth } from '@/hooks/useAuth';
 import { tokenManager } from '@/lib/api-client';
 
+/** `coach` / `client` 為簡寫；其餘傳入則視為 `UserRole`。 */
+export type ProtectedRouteRole = 'coach' | 'client' | UserRole;
+
 interface ProtectedRouteProps {
   children: React.ReactNode;
+  /** 單一角色簡寫（例如 `coach`）；若同時傳 `requiredRoles`，以此為準。 */
+  role?: ProtectedRouteRole;
   requiredRoles?: UserRole[];
   fallback?: React.ReactNode;
 }
@@ -21,8 +26,22 @@ export interface UserData {
   lastName?: string;
 }
 
+function resolveRequiredRoles(
+  role: ProtectedRouteRole | undefined,
+  requiredRoles: UserRole[] | undefined,
+): UserRole[] | undefined {
+  if (role !== undefined) {
+    const key = String(role).toLowerCase();
+    if (key === 'coach') return ['COACH'];
+    if (key === 'client') return ['USER'];
+    return [String(role).toUpperCase() as UserRole];
+  }
+  return requiredRoles;
+}
+
 const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   children,
+  role,
   requiredRoles,
   fallback,
 }) => {
@@ -48,13 +67,15 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
     return null; // useEffect 會處理重定向
   }
 
+  const effectiveRequiredRoles = resolveRequiredRoles(role, requiredRoles);
+
   // ✅ 檢查角色權限（處理大小寫不匹配）
   const userRoleStr = String(user.role || '').toUpperCase();
   const normalizedUserRole = userRoleStr as UserRole;
   
   // 將 requiredRoles 也轉換為大寫進行比較
-  const normalizedRequiredRoles = requiredRoles?.map(role => String(role).toUpperCase() as UserRole) || [];
-  const isAuthorized = !requiredRoles || requiredRoles.length === 0 || normalizedRequiredRoles.includes(normalizedUserRole);
+  const normalizedRequiredRoles = effectiveRequiredRoles?.map((r) => String(r).toUpperCase() as UserRole) || [];
+  const isAuthorized = !effectiveRequiredRoles || effectiveRequiredRoles.length === 0 || normalizedRequiredRoles.includes(normalizedUserRole);
 
   if (!isAuthorized) {
     return fallback || (
@@ -63,7 +84,7 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
           <h2>訪問被拒絕</h2>
           <p>你沒有權限訪問此頁面。</p>
           <p>你的角色: {normalizedUserRole}</p>
-          {requiredRoles && <p>需要的角色: {requiredRoles.join(', ')}</p>}
+          {effectiveRequiredRoles && <p>需要的角色: {effectiveRequiredRoles.join(', ')}</p>}
         </div>
       </div>
     );

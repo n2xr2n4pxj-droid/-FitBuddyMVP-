@@ -1,3 +1,4 @@
+import ProtectedRoute from "@/routes/ProtectedRoute";
 import CoachDashboard from "@/pages/coach/CoachDashboard";
 import LearnerWorkoutHistory from "@/components/workout/LearnerWorkoutHistory";
 import NotificationSettings from "@/components/settings/NotificationSettings";
@@ -17,7 +18,11 @@ export default function CoachRouter({
 }: CoachRouterProps) {
   switch (tab) {
     case "dashboard":
-      return <CoachDashboard onOpenRoutineBuilder={onOpenRoutineBuilder} />;
+      return (
+        <ProtectedRoute role="coach">
+          <CoachDashboard onOpenRoutineBuilder={onOpenRoutineBuilder} />
+        </ProtectedRoute>
+      );
     case "workout":
       return <LearnerWorkoutHistory onOpenClientProgress={onOpenClientProgress} />;
     case "clients":
