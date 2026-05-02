@@ -14,6 +14,8 @@ import {
 import emailService from '../services/emailService';
 import { sendEmail } from '../services/emailService';
 import { config } from '../config/env';
+import { sendError } from '../lib/response';
+import { ErrorCodes } from '@shared/error-codes';
 
 const router = Router();
 
@@ -139,11 +141,11 @@ router.post('/auth/register',  async (req: any, res: any) => {
     });
 
     if (!email || !password) {
-      return res.status(400).json({ message: 'Email and password are required' });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, 'Email and password are required');
     }
 
     if (password.length < 8) {
-      return res.status(400).json({ message: 'Password must be at least 8 characters' });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, 'Password must be at least 8 characters');
     }
 
     if (coachRefToken) {
@@ -168,11 +170,13 @@ router.post('/auth/register',  async (req: any, res: any) => {
 
     const existingUser = await getUserByEmail(email);
     if (existingUser) {
-      return res.status(409).json({ 
-        error: 'USER_ALREADY_EXISTS',
-        message: '你的帳戶已註冊，請使用登入功能',
-        email: email,
-      });
+      return sendError(
+        res,
+        409,
+        ErrorCodes.AUTH_USER_EXISTS,
+        '你的帳戶已註冊，請使用登入功能',
+        { details: { email } },
+      );
     }
 
     const passwordHash = hashPassword(password);
@@ -279,10 +283,7 @@ router.post('/auth/register',  async (req: any, res: any) => {
     });
   } catch (error) {
     console.error('[POST /auth/register] Error:', error);
-    res.status(500).json({
-      message: 'Failed to register user',
-      error: error instanceof Error ? error.message : 'Unknown error',
-    });
+    sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, 'Failed to register user');
   }
 });
 
@@ -296,38 +297,43 @@ router.post('/auth/login', async (req: any, res: any) => {
     console.log('[POST /auth/login]', { email });
 
     if (!email || !password) {
-      return res.status(400).json({ message: 'Email and password are required' });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, 'Email and password are required');
     }
 
     const user = await getUserByEmail(email);
 
     if (!user) {
       console.log('[POST /auth/login] User not found:', email);
-      return res.status(404).json({ 
-        error: 'USER_NOT_FOUND',
-        message: '你的帳戶並未註冊，請先註冊',
-        email: email,
-      });
+      return sendError(
+        res,
+        404,
+        ErrorCodes.AUTH_USER_NOT_FOUND,
+        '你的帳戶並未註冊，請先註冊',
+        { details: { email } },
+      );
     }
 
     if (!user.passwordHash) {
       console.log('[POST /auth/login] User has no password hash:', email);
-      return res.status(401).json({ message: 'Invalid credentials' });
+      return sendError(res, 401, ErrorCodes.AUTH_INVALID_CREDENTIALS, 'Invalid credentials');
     }
 
     const passwordValid = verifyPassword(password, user.passwordHash);
     if (!passwordValid) {
       console.log('[POST /auth/login] Invalid password for:', email);
-      return res.status(401).json({ message: 'Invalid credentials' });
+      return sendError(res, 401, ErrorCodes.AUTH_INVALID_CREDENTIALS, 'Invalid credentials');
     }
 
     // ✅ 檢查郵箱是否已驗證
     if (!user.emailVerified) {
       console.log('[POST /auth/login] ❌ Email not verified for:', email);
-      return res.status(403).json({ 
-        error: '請先驗證你的郵箱',
-        needsVerification: true 
-      });
+      return sendError(
+        res,
+        403,
+        ErrorCodes.AUTH_VERIFICATION_REQUIRED,
+        '請先驗證你的郵箱',
+        { details: { needsVerification: true } },
+      );
     }
 
     // 直接使用資料庫中的 role 值（'USER', 'COACH', 'ADMIN'）
@@ -363,10 +369,7 @@ router.post('/auth/login', async (req: any, res: any) => {
     });
   } catch (error) {
     console.error('[POST /auth/login] Error:', error);
-    res.status(500).json({
-      message: 'Failed to login',
-      error: error instanceof Error ? error.message : 'Unknown error',
-    });
+    sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, 'Failed to login');
   }
 });
 
@@ -377,33 +380,33 @@ router.post('/auth/apply-coach-ref', verifyJWT, async (req: any, res: any) => {
   try {
     const userId = String(req.user?.id || req.user?.claims?.sub || '').trim();
     if (!userId) {
-      return res.status(401).json({ success: false, error: 'Unauthorized' });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, 'Unauthorized');
     }
 
     const coachRefToken = String(req.body?.coachRef || req.body?.coach_ref || '').trim();
     if (!coachRefToken) {
-      return res.status(400).json({ success: false, error: 'coachRef is required' });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, 'coachRef is required');
     }
 
     let coachId = '';
     try {
       const decoded = jwt.verify(coachRefToken, JWT_SECRET) as any;
       if (decoded?.type !== 'coach_ref' || !decoded?.coachId) {
-        return res.status(400).json({ success: false, error: 'Invalid coach_ref token' });
+        return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, 'Invalid coach_ref token');
       }
       coachId = String(decoded.coachId).trim();
     } catch {
-      return res.status(400).json({ success: false, error: 'Invalid or expired coach_ref token' });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, 'Invalid or expired coach_ref token');
     }
 
     if (!coachId || coachId === userId) {
-      return res.status(400).json({ success: false, error: 'Invalid coach_ref owner' });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, 'Invalid coach_ref owner');
     }
 
     const coachUser = await getUserById(coachId);
     const coachRole = normalizeRoleToUpperCase(coachUser?.role);
     if (!coachUser || (coachRole !== 'COACH' && coachRole !== 'ADMIN')) {
-      return res.status(400).json({ success: false, error: 'Invalid coach_ref owner' });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, 'Invalid coach_ref owner');
     }
 
     const existingRelationship = await db
@@ -439,11 +442,7 @@ router.post('/auth/apply-coach-ref', verifyJWT, async (req: any, res: any) => {
     });
   } catch (error) {
     console.error('[POST /auth/apply-coach-ref] Error:', error);
-    return res.status(500).json({
-      success: false,
-      error: 'Failed to apply coach_ref',
-      message: error instanceof Error ? error.message : 'Unknown error',
-    });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, 'Failed to apply coach_ref');
   }
 });
 
@@ -522,11 +521,7 @@ router.post('/auth/forgot-password', async (req: any, res: any) => {
     });
   } catch (error) {
     console.error('[POST /auth/forgot-password] Error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to process forgot password request',
-      error: error instanceof Error ? error.message : 'Unknown error',
-    });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, 'Failed to process forgot password request');
   }
 });
 
@@ -628,10 +623,7 @@ const handleRoleSelect = async (req: any, res: any) => {
 
   } catch (error) {
     console.error('[SelectRole] ❌ ERROR:', error);
-    return res.status(500).json({
-      error: 'Failed to select role',
-      message: error instanceof Error ? error.message : String(error)
-    });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, 'Failed to select role');
   }
 };
 
@@ -971,10 +963,7 @@ router.get('/auth/verify-email/:token', async (req: any, res: any) => {
     res.redirect(`${clientUrl}/auth/login?verified=true`);
   } catch (error) {
     console.error('[GET /auth/verify-email] Error:', error);
-    res.status(500).json({ 
-      error: 'Failed to verify email',
-      message: error instanceof Error ? error.message : 'Unknown error'
-    });
+    sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, 'Failed to verify email');
   }
 });
 
@@ -1082,11 +1071,7 @@ router.get('/v1/auth/verify-email/:token', async (req: any, res: any) => {
     });
   } catch (error) {
     console.error('[GET /api/v1/auth/verify-email] Error:', error);
-    res.status(500).json({ 
-      success: false,
-      error: 'Failed to verify email',
-      message: error instanceof Error ? error.message : 'Unknown error'
-    });
+    sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, 'Failed to verify email');
   }
 });
 
@@ -1179,11 +1164,7 @@ router.post('/v1/auth/resend-verification', async (req: any, res: any) => {
     });
   } catch (error) {
     console.error('[POST /api/v1/auth/resend-verification] ❌ Error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to resend verification email',
-      message: error instanceof Error ? error.message : 'Unknown error',
-    });
+    sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, 'Failed to resend verification email');
   }
 });
 
@@ -1243,11 +1224,7 @@ router.get('/v1/auth/check-email-verified', async (req: any, res: any) => {
   } catch (error) {
     console.error('[GET /api/v1/auth/check-email-verified] ❌ Error:', error);
     console.error('[GET /api/v1/auth/check-email-verified] Error stack:', error instanceof Error ? error.stack : 'No stack trace');
-    res.status(500).json({
-      success: false,
-      error: 'Failed to check email verification status',
-      message: error instanceof Error ? error.message : 'Unknown error',
-    });
+    sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, 'Failed to check email verification status');
   }
 });
 
@@ -1284,11 +1261,7 @@ router.get('/v1/admin/users', async (req: any, res: any) => {
     });
   } catch (error) {
     console.error('[GET /api/v1/admin/users] ❌ 錯誤:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch users',
-      message: error instanceof Error ? error.message : 'Unknown error',
-    });
+    sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, 'Failed to fetch users');
   }
 });
 
@@ -1336,11 +1309,7 @@ router.delete('/v1/admin/users/:id', async (req: any, res: any) => {
     });
   } catch (error) {
     console.error('[DELETE /api/v1/admin/users/:id] ❌ 錯誤:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to delete user',
-      message: error instanceof Error ? error.message : 'Unknown error',
-    });
+    sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, 'Failed to delete user');
   }
 });
 
@@ -1632,11 +1601,7 @@ router.post('/auth/google/callback', async (req: any, res: any) => {
     });
   } catch (error) {
     console.error('[POST /auth/google/callback] ❌ Error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Google authentication failed',
-      message: error instanceof Error ? error.message : 'Unknown error',
-    });
+    sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, 'Google authentication failed');
   }
 });
 
@@ -1771,11 +1736,7 @@ router.get('/auth/registration-status', verifyJWT, async (req: any, res: any) =>
     });
   } catch (error: any) {
     console.error('[GET /auth/registration-status] ❌ Error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to check registration status',
-      message: error.message,
-    });
+    sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, 'Failed to check registration status');
   }
 });
 

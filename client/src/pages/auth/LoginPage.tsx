@@ -29,7 +29,7 @@ export const LoginPage: React.FC = () => {
     const { status, data } = error.response;
 
     // 3. 根據後端約定的狀態碼進行精準引導
-    if (status === 403 && data?.needsVerification) {
+    if (status === 403 && data?.details?.needsVerification) {
       toast.warning('帳號需要驗證，請檢查電子郵件');
       navigate('/verify-email');
     } else if (status === 401 || status === 404) {
