@@ -583,7 +583,7 @@ const handleRoleSelect = async (req: any, res: any) => {
 
     if (!updatedUser) {
       console.log('[SelectRole] ❌ User not found:', userId);
-      return res.status(404).json({ error: 'User not found' });
+      return sendError(res, 404, ErrorCodes.AUTH_USER_NOT_FOUND, 'User not found');
     }
 
     // 使用資料庫中實際存儲的 role 值
@@ -644,7 +644,7 @@ router.get('/auth/me', async (req: any, res: any) => {
 
     if (!token) {
       console.log('[GET /auth/me] ❌ No token provided');
-      return res.status(401).json({ error: 'Not authenticated' });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, 'Not authenticated');
     }
 
     let decoded: any;
@@ -653,7 +653,7 @@ router.get('/auth/me', async (req: any, res: any) => {
       console.log('[GET /auth/me] ✅ Token verified');
     } catch (verifyErr) {
       console.error('[GET /auth/me] ❌ Token verification failed:', verifyErr);
-      return res.status(401).json({ error: 'Invalid token' });
+      return sendError(res, 401, ErrorCodes.AUTH_TOKEN_INVALID, 'Invalid token');
     }
 
     const userId = decoded.sub;
@@ -661,7 +661,7 @@ router.get('/auth/me', async (req: any, res: any) => {
 
     if (!userId) {
       console.log('[GET /auth/me] ❌ No userId found in token');
-      return res.status(401).json({ error: 'Not authenticated' });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, 'Not authenticated');
     }
 
     console.log('[GET /auth/me] Looking up user by id...');
@@ -687,7 +687,7 @@ router.get('/auth/me', async (req: any, res: any) => {
 
       if (result.rows.length === 0) {
         console.log('[GET /auth/me] ❌ User not found in database:', userId);
-        return res.status(401).json({ error: 'User not found' });
+        return sendError(res, 401, ErrorCodes.AUTH_USER_NOT_FOUND, 'User not found');
       }
 
       const userData = result.rows[0];
@@ -757,7 +757,7 @@ router.get('/auth/me', async (req: any, res: any) => {
 
     } catch (queryError: any) {
       console.error('[GET /auth/me] ❌ Database query error:', queryError);
-      return res.status(500).json({ error: 'Failed to fetch user from database' });
+      return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, 'Failed to fetch user from database');
     }
 
     // 直接使用資料庫中的原始 role 值
@@ -787,7 +787,7 @@ router.get('/auth/me', async (req: any, res: any) => {
     res.status(200).json(responseData);
   } catch (error) {
     console.error('[GET /auth/me] ❌ Error fetching user:', error);
-    res.status(500).json({ error: 'Failed to fetch user' });
+    sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, 'Failed to fetch user');
   }
 });
 
@@ -799,7 +799,7 @@ router.post('/auth/refresh', async (req: any, res: any) => {
     const { refreshToken } = req.body;
 
     if (!refreshToken) {
-      return res.status(401).json({ error: 'Refresh token required' });
+      return sendError(res, 401, ErrorCodes.VALIDATION_ERROR, 'Refresh token required');
     }
 
     // 驗證 refresh token
@@ -808,24 +808,24 @@ router.post('/auth/refresh', async (req: any, res: any) => {
       decoded = jwt.verify(refreshToken, REFRESH_TOKEN_SECRET);
     } catch (verifyErr: any) {
       if (verifyErr.name === 'TokenExpiredError') {
-        return res.status(401).json({ error: 'Refresh token expired' });
+        return sendError(res, 401, ErrorCodes.AUTH_TOKEN_EXPIRED, 'Refresh token expired');
       }
       if (verifyErr.name === 'JsonWebTokenError') {
-        return res.status(401).json({ error: 'Invalid refresh token' });
+        return sendError(res, 401, ErrorCodes.AUTH_TOKEN_INVALID, 'Invalid refresh token');
       }
       throw verifyErr;
     }
 
     const userId = decoded.sub;
     if (!userId) {
-      return res.status(401).json({ error: 'Invalid refresh token' });
+      return sendError(res, 401, ErrorCodes.AUTH_TOKEN_INVALID, 'Invalid refresh token');
     }
 
     // 從數據庫查詢用戶（確保用戶仍然存在）
     const user = await getUserById(userId);
 
     if (!user) {
-      return res.status(401).json({ error: 'User not found' });
+      return sendError(res, 401, ErrorCodes.AUTH_USER_NOT_FOUND, 'User not found');
     }
 
     // 生成新的 access token
@@ -850,7 +850,7 @@ router.post('/auth/refresh', async (req: any, res: any) => {
     });
   } catch (error) {
     console.error('[POST /auth/refresh] Error:', error);
-    res.status(500).json({ error: 'Token refresh failed' });
+    sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, 'Token refresh failed');
   }
 });
 
@@ -907,7 +907,7 @@ router.get('/auth/verify-email/:token', async (req: any, res: any) => {
     const { token } = req.params;
 
     if (!token) {
-      return res.status(400).json({ error: 'Verification token is required' });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, 'Verification token is required');
     }
 
     // ✅ 使用 SHA256 哈希 token 後在資料庫中查找
