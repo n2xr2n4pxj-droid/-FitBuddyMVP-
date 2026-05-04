@@ -27,6 +27,8 @@ import { eq, desc } from 'drizzle-orm';
 import { getUserById } from '../db/queries';
 import { verifyJWT } from '../replitAuth';
 import { config } from '../config/env';
+import { sendError } from '../lib/response';
+import { ErrorCodes } from '@shared/error-codes';
 
 const router = Router();
 
@@ -38,17 +40,17 @@ router.get('/share-token', verifyJWT, async (req: any, res: any) => {
   try {
     const coachId = req.user?.id ?? req.user?.claims?.sub;
     if (!coachId) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, 'Unauthorized');
     }
 
     const currentUser = await getUserById(coachId);
     if (!currentUser) {
-      return res.status(401).json({ error: 'User not found' });
+      return sendError(res, 401, ErrorCodes.AUTH_USER_NOT_FOUND, 'User not found');
     }
 
     const role = String(currentUser.role ?? '').toUpperCase();
     if (role !== 'COACH' && role !== 'ADMIN') {
-      return res.status(403).json({ error: 'Only coach can generate share token' });
+      return sendError(res, 403, ErrorCodes.FORBIDDEN, 'Only coach can generate share token');
     }
 
     const token = jwt.sign(
@@ -69,7 +71,7 @@ router.get('/share-token', verifyJWT, async (req: any, res: any) => {
     });
   } catch (error: any) {
     console.error('❌ [API] GET /invitations/share-token Error:', error);
-    return res.status(500).json({ error: error?.message ?? 'Failed to generate share token' });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, 'Failed to generate share token');
   }
 });
 
@@ -81,11 +83,11 @@ router.get('/', verifyJWT, async (req: any, res: any) => {
   try {
     const currentId = req.user?.id ?? req.user?.claims?.sub;
     if (!currentId) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, 'Unauthorized');
     }
     const currentUser = await getUserById(currentId);
     if (!currentUser) {
-      return res.status(401).json({ error: 'User not found' });
+      return sendError(res, 401, ErrorCodes.AUTH_USER_NOT_FOUND, 'User not found');
     }
 
     const sent = await getCoachInvitations(currentId).catch(() => []);
@@ -104,7 +106,7 @@ router.get('/', verifyJWT, async (req: any, res: any) => {
     return res.status(200).json(list);
   } catch (error: any) {
     console.error('❌ [API] GET /invitations Error:', error);
-    return res.status(500).json({ error: error?.message ?? 'Failed to get invitations' });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, 'Failed to get invitations');
   }
 });
 
@@ -116,30 +118,30 @@ router.post('/', verifyJWT, async (req: any, res: any) => {
   try {
     const coachId = req.user?.id ?? req.user?.claims?.sub;
     if (!coachId) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, 'Unauthorized');
     }
     const currentUser = await getUserById(coachId);
     if (!currentUser) {
-      return res.status(401).json({ error: 'User not found' });
+      return sendError(res, 401, ErrorCodes.AUTH_USER_NOT_FOUND, 'User not found');
     }
     const role = String(currentUser.role ?? '').toUpperCase();
     if (role !== 'COACH' && role !== 'ADMIN') {
-      return res.status(403).json({ error: 'Only coach can send invitations' });
+      return sendError(res, 403, ErrorCodes.FORBIDDEN, 'Only coach can send invitations');
     }
 
     const email = req.body?.email;
     if (!email || typeof email !== 'string' || !email.trim()) {
-      return res.status(400).json({ error: 'email is required' });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, 'email is required');
     }
 
     const result = await createInvitationForExistingUser(coachId, email.trim());
     if (!result.success) {
-      return res.status(400).json({ error: result.error });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, result.error ?? 'Invitation error');
     }
     return res.status(200).json(result.data);
   } catch (error: any) {
     console.error('❌ [API] POST /invitations Error:', error);
-    return res.status(500).json({ error: error?.message ?? 'Failed to create invitation' });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, 'Failed to create invitation');
   }
 });
 
@@ -155,29 +157,25 @@ router.post('/send', authMiddleware, coachOnly, async (req: any, res: any) => {
     console.log(`🟡 [API] POST /invitations/send - coachId: ${coachId}, email: ${client_email}`);
 
     if (!coachId) {
-      return res.status(401).json({ error: '未認證' });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '未認證');
     }
 
     // ✅ 驗證輸入
     if (!client_email) {
-      return res.status(400).json({ error: 'client_email 為必填項' });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, 'client_email 為必填項');
     }
 
     // ✅ 驗證郵箱格式
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(client_email)) {
-      return res.status(400).json({ error: '郵箱格式無效' });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, '郵箱格式無效');
     }
 
     const result = await sendInvitation(coachId, client_email, client_name, notes);
     
     // 處理新的返回格式
     if (!result.success) {
-      return res.status(400).json({ 
-        error: result.error || '發送邀請失敗',
-        errorCode: result.errorCode,
-        logId: result.logId // 返回 Log ID 用於追蹤
-      });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, result.error || '發送邀請失敗');
     }
 
     res.status(201).json({
@@ -187,7 +185,7 @@ router.post('/send', authMiddleware, coachOnly, async (req: any, res: any) => {
     });
   } catch (error: any) {
     console.error('❌ [API] Error sending invitation:', error);
-    res.status(400).json({ error: error.message || '發送邀請失敗' });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, '發送邀請失敗');
   }
 });
 
@@ -200,14 +198,14 @@ router.get('/status/:code', async (req: any, res: any) => {
     const { code } = req.params;
 
     if (!code) {
-      return res.status(400).json({ error: '邀請碼為必填項' });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, '邀請碼為必填項');
     }
 
     const result = await getInvitationStatus(code);
     res.json(result);
   } catch (error: any) {
     console.error('❌ [API] Error getting invitation status:', error);
-    res.status(400).json({ error: error.message || '獲取邀請狀態失敗' });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, '獲取邀請狀態失敗');
   }
 });
 
@@ -220,14 +218,14 @@ router.post('/:id/accept', verifyJWT, async (req: any, res: any) => {
     const invitationId = req.params.id;
     const currentId = req.user?.id ?? req.user?.claims?.sub;
     if (!currentId) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, 'Unauthorized');
     }
     const currentUser = await getUserById(currentId);
     if (!currentUser) {
-      return res.status(401).json({ error: 'User not found' });
+      return sendError(res, 401, ErrorCodes.AUTH_USER_NOT_FOUND, 'User not found');
     }
     if (!invitationId) {
-      return res.status(400).json({ error: '邀請 ID 為必填項' });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, '邀請 ID 為必填項');
     }
 
     const result = await acceptInvitationById(
@@ -242,12 +240,12 @@ router.post('/:id/accept', verifyJWT, async (req: any, res: any) => {
           : result.error === '僅被邀請人可接受此邀請'
             ? 403
             : 400;
-      return res.status(status).json({ error: result.error });
+      return sendError(res, status, ErrorCodes.FORBIDDEN, result.error ?? 'Invitation error');
     }
     return res.status(200).json(result.data);
   } catch (error: any) {
     console.error('❌ [API] POST /invitations/:id/accept Error:', error);
-    return res.status(500).json({ error: error?.message ?? '接受邀請失敗' });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, '接受邀請失敗');
   }
 });
 
@@ -263,35 +261,29 @@ router.post('/accept/:code', async (req: any, res: any) => {
     console.log(`🟡 [API] POST /invitations/accept/${code}`);
 
     if (!code) {
-      return res.status(400).json({ error: '邀請碼為必填項' });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, '邀請碼為必填項');
     }
 
     // ✅ 驗證必填項
     if (!password || agree_terms === undefined) {
-      return res.status(400).json({ 
-        error: 'password 和 agree_terms 為必填項' 
-      });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, 'password 和 agree_terms 為必填項');
     }
 
     // ✅ 驗證密碼強度
     if (password.length < 8) {
-      return res.status(400).json({ 
-        error: '密碼至少需要 8 個字符' 
-      });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, '密碼至少需要 8 個字符');
     }
 
     // ✅ 驗證 agree_terms 必須為 true
     if (agree_terms !== true) {
-      return res.status(400).json({ 
-        error: '必須同意服務條款' 
-      });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, '必須同意服務條款');
     }
 
     const result = await acceptInvitation(code, { password, phone, agree_terms });
     res.json(result);
   } catch (error: any) {
     console.error('❌ [API] Error accepting invitation:', error);
-    res.status(400).json({ error: error.message || '接受邀請失敗' });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, '接受邀請失敗');
   }
 });
 
@@ -318,7 +310,7 @@ router.get('/coach/list', authMiddleware, coachOnly, async (req: any, res: any) 
 
     if (!coachId) {
       console.log('❌ [API] No coach ID found');
-      return res.status(401).json({ error: '未認證' });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '未認證');
     }
 
     console.log('🟡 [API] Calling getCoachInvitations...');
@@ -331,10 +323,7 @@ router.get('/coach/list', authMiddleware, coachOnly, async (req: any, res: any) 
     console.error('❌ [API] Error stack:', error?.stack);
     console.error('❌ [API] Error message:', error?.message);
     console.error('❌ [API] Error name:', error?.name);
-    res.status(400).json({ 
-      error: error.message || '獲取邀請列表失敗',
-      details: process.env.NODE_ENV === 'development' ? error?.stack : undefined
-    });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, '獲取邀請列表失敗');
   }
 });
 
@@ -348,18 +337,18 @@ router.delete('/:invitationId', authMiddleware, coachOnly, async (req: any, res:
     const { invitationId } = req.params;
 
     if (!coachId) {
-      return res.status(401).json({ error: '未認證' });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '未認證');
     }
 
     if (!invitationId) {
-      return res.status(400).json({ error: '邀請 ID 為必填項' });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, '邀請 ID 為必填項');
     }
 
     const result = await cancelInvitation(coachId, invitationId);
     res.json(result);
   } catch (error: any) {
     console.error('❌ [API] Error canceling invitation:', error);
-    res.status(400).json({ error: error.message || '撤銷邀請失敗' });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, '撤銷邀請失敗');
   }
 });
 
@@ -375,21 +364,17 @@ router.patch('/resend/:invitationId', authMiddleware, coachOnly, async (req: any
     console.log(`🟡 [API] PATCH /invitations/resend/${invitationId} - coachId: ${coachId}`);
 
     if (!coachId) {
-      return res.status(401).json({ error: '未認證' });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '未認證');
     }
 
     if (!invitationId) {
-      return res.status(400).json({ error: '邀請 ID 為必填項' });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, '邀請 ID 為必填項');
     }
 
     const result = await resendInvitation(coachId, invitationId);
     
     if (!result.success) {
-      return res.status(400).json({ 
-        error: result.error || '重新發送邀請失敗',
-        errorCode: result.errorCode,
-        logId: result.logId
-      });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, result.error || '重新發送邀請失敗');
     }
 
     res.json({
@@ -399,7 +384,7 @@ router.patch('/resend/:invitationId', authMiddleware, coachOnly, async (req: any
     });
   } catch (error: any) {
     console.error('❌ [API] Error resending invitation:', error);
-    res.status(400).json({ error: error.message || '重新發送邀請失敗' });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, '重新發送邀請失敗');
   }
 });
 
@@ -412,14 +397,14 @@ router.get('/templates', authMiddleware, coachOnly, async (req: any, res: any) =
     const coachId = req.user?.id || req.user?.claims?.sub;
 
     if (!coachId) {
-      return res.status(401).json({ error: '未認證' });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '未認證');
     }
 
     const templates = await getCoachTemplates(coachId);
     res.json(templates);
   } catch (error: any) {
     console.error('❌ [API] Error getting templates:', error);
-    res.status(400).json({ error: error.message || '獲取模板失敗' });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, '獲取模板失敗');
   }
 });
 
@@ -433,18 +418,18 @@ router.post('/templates', authMiddleware, coachOnly, async (req: any, res: any) 
     const { name, message } = req.body;
 
     if (!coachId) {
-      return res.status(401).json({ error: '未認證' });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '未認證');
     }
 
     if (!name || !message) {
-      return res.status(400).json({ error: 'name 和 message 為必填項' });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, 'name 和 message 為必填項');
     }
 
     const template = await createTemplate(coachId, name, message);
     res.status(201).json(template);
   } catch (error: any) {
     console.error('❌ [API] Error creating template:', error);
-    res.status(400).json({ error: error.message || '創建模板失敗' });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, '創建模板失敗');
   }
 });
 
@@ -459,11 +444,11 @@ router.patch('/templates/:templateId', authMiddleware, coachOnly, async (req: an
     const { name, message } = req.body;
 
     if (!coachId) {
-      return res.status(401).json({ error: '未認證' });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '未認證');
     }
 
     if (!templateId) {
-      return res.status(400).json({ error: '模板 ID 為必填項' });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, '模板 ID 為必填項');
     }
 
     const updates: { name?: string; message?: string } = {};
@@ -471,14 +456,14 @@ router.patch('/templates/:templateId', authMiddleware, coachOnly, async (req: an
     if (message !== undefined) updates.message = message;
 
     if (Object.keys(updates).length === 0) {
-      return res.status(400).json({ error: '至少需要提供一個更新字段' });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, '至少需要提供一個更新字段');
     }
 
     const template = await updateTemplate(coachId, templateId, updates);
     res.json(template);
   } catch (error: any) {
     console.error('❌ [API] Error updating template:', error);
-    res.status(400).json({ error: error.message || '更新模板失敗' });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, '更新模板失敗');
   }
 });
 
@@ -492,18 +477,18 @@ router.delete('/templates/:templateId', authMiddleware, coachOnly, async (req: a
     const { templateId } = req.params;
 
     if (!coachId) {
-      return res.status(401).json({ error: '未認證' });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '未認證');
     }
 
     if (!templateId) {
-      return res.status(400).json({ error: '模板 ID 為必填項' });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, '模板 ID 為必填項');
     }
 
     const result = await deleteTemplate(coachId, templateId);
     res.json(result);
   } catch (error: any) {
     console.error('❌ [API] Error deleting template:', error);
-    res.status(400).json({ error: error.message || '刪除模板失敗' });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, '刪除模板失敗');
   }
 });
 
