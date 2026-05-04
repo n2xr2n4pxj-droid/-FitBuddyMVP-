@@ -4,6 +4,8 @@ import { offlineManager } from './offline-manager';
 import { createAppApiError, extractErrorPayload, type AppApiError } from './api-error';
 import type { AuthApiResponse, MePayload } from '@/types/auth-payload';
 
+export { createAppApiError };
+
 export type AuthResponse = AuthApiResponse;
 
 export interface RefreshTokenResponse {

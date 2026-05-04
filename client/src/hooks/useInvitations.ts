@@ -1,11 +1,13 @@
 import { useState, useCallback, useEffect } from 'react';
 import { Invitation, InvitationStats } from '@/types/invitations';
 import { invitationService } from '@/services/invitationService';
+import { normalizeApiError, createAppApiError } from '@/lib/api-client';
+import type { AppApiError } from '@/lib/api-error';
 
 export const useInvitations = () => {
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<AppApiError | null>(null);
   const [stats, setStats] = useState<InvitationStats>({
     pending: 0,
     accepted: 0,
@@ -38,7 +40,7 @@ export const useInvitations = () => {
 
       setStats(newStats);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error');
+      setError(normalizeApiError(err));
     } finally {
       setLoading(false);
     }
@@ -62,14 +64,18 @@ export const useInvitations = () => {
         if (result.success) {
           await refreshInvitations(); // 重新載入列表
         } else {
-          setError(result.error || result.message || '發送邀請失敗');
+          const errorObj = createAppApiError({
+            message: result.error || result.message || '操作失敗',
+          });
+          setError(errorObj);
+          throw errorObj;
         }
         
         return result;
       } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : '發送邀請失敗';
-        setError(errorMessage);
-        throw err;
+        const normalized = normalizeApiError(err);
+        setError(normalized);
+        throw normalized;
       }
     },
     [refreshInvitations]
@@ -85,14 +91,18 @@ export const useInvitations = () => {
         if (result.success) {
           await refreshInvitations(); // 重新載入列表
         } else {
-          setError(result.error || result.message || '撤銷邀請失敗');
+          const errorObj = createAppApiError({
+            message: result.error || result.message || '操作失敗',
+          });
+          setError(errorObj);
+          throw errorObj;
         }
         
         return result;
       } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : '撤銷邀請失敗';
-        setError(errorMessage);
-        throw err;
+        const normalized = normalizeApiError(err);
+        setError(normalized);
+        throw normalized;
       }
     },
     [refreshInvitations]
@@ -108,14 +118,18 @@ export const useInvitations = () => {
         if (result.success) {
           await refreshInvitations(); // 重新載入列表
         } else {
-          setError(result.error || result.message || '重新發送邀請失敗');
+          const errorObj = createAppApiError({
+            message: result.error || result.message || '操作失敗',
+          });
+          setError(errorObj);
+          throw errorObj;
         }
         
         return result;
       } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : '重新發送邀請失敗';
-        setError(errorMessage);
-        throw err;
+        const normalized = normalizeApiError(err);
+        setError(normalized);
+        throw normalized;
       }
     },
     [refreshInvitations]
@@ -130,9 +144,9 @@ export const useInvitations = () => {
         const invitation = await invitationService.checkInvitationStatus(code);
         return invitation;
       } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : '驗證邀請失敗';
-        setError(errorMessage);
-        throw err;
+        const normalized = normalizeApiError(err);
+        setError(normalized);
+        throw normalized;
       } finally {
         setLoading(false);
       }
@@ -149,15 +163,18 @@ export const useInvitations = () => {
         const result = await invitationService.acceptInvitation(code, password, phone, agreeTerms);
         
         if (!result.success) {
-          setError(result.error || result.message || '接受邀請失敗');
-          throw new Error(result.error || result.message || '接受邀請失敗');
+          const errorObj = createAppApiError({
+            message: result.error || result.message || '接受邀請失敗',
+          });
+          setError(errorObj);
+          throw errorObj;
         }
         
         return result;
       } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : '接受邀請失敗';
-        setError(errorMessage);
-        throw err;
+        const normalized = normalizeApiError(err);
+        setError(normalized);
+        throw normalized;
       } finally {
         setLoading(false);
       }
@@ -173,11 +190,13 @@ export const useInvitations = () => {
         setLoading(true);
         // 注意：後端目前沒有拒絕邀請的端點
         // 這裡可以實現為更新邀請狀態為 REJECTED，或者拋出錯誤
-        throw new Error('拒絕邀請功能尚未實現');
+        const errorObj = createAppApiError({ message: '拒絕邀請功能尚未實現' });
+        setError(errorObj);
+        throw errorObj;
       } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : '拒絕邀請失敗';
-        setError(errorMessage);
-        throw err;
+        const normalized = normalizeApiError(err);
+        setError(normalized);
+        throw normalized;
       } finally {
         setLoading(false);
       }
@@ -193,7 +212,7 @@ export const useInvitations = () => {
   return {
     invitations,
     loading,
-    error,
+    error: error?.message ?? null,
     stats,
     refreshInvitations,
     sendInvitation,

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { EmailErrorAlert } from './EmailErrorAlert';
 import { useInvitationTemplates } from '@/hooks/useInvitationTemplates';
 import { InvitationTemplate } from '@/types/invitations';
+import { normalizeApiError } from '@/lib/api-client';
 
 interface CoachInvitationModalProps {
   isOpen: boolean;
@@ -102,16 +103,12 @@ export const CoachInvitationModal: React.FC<CoachInvitationModalProps> = ({
         onClose();
         setSuccess(false);
       }, 2000);
-    } catch (err: any) {
-      const errorMsg = err instanceof Error ? err.message : '發送邀請失敗';
-      setError(errorMsg);
+    } catch (err) {
+      const normalized = normalizeApiError(err);
+      setError(normalized.message || '發送邀請失敗');
       
-      // 嘗試提取 logId（如果後端返回）
-      if (err?.logId) {
-        setLogId(err.logId);
-      } else if (err instanceof Error && err.message.includes('logId:')) {
-        const match = err.message.match(/logId:\s*(\w+)/);
-        if (match) setLogId(match[1]);
+      if (normalized.logId) {
+        setLogId(normalized.logId);
       }
     }
   };

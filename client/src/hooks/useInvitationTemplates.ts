@@ -2,11 +2,13 @@ import { useState, useCallback, useEffect } from 'react';
 import { InvitationTemplate } from '@/types/invitations';
 import { invitationService } from '@/services/invitationService';
 import { useToast } from '@/hooks/use-toast';
+import { normalizeApiError } from '@/lib/api-client';
+import type { AppApiError } from '@/lib/api-error';
 
 export const useInvitationTemplates = () => {
   const [templates, setTemplates] = useState<InvitationTemplate[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<AppApiError | null>(null);
   const { toast } = useToast();
 
   // 獲取模板列表
@@ -17,9 +19,9 @@ export const useInvitationTemplates = () => {
       const data = await invitationService.getInvitationTemplates();
       setTemplates(data);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : '獲取模板失敗';
-      setError(errorMessage);
-      throw err;
+      const normalized = normalizeApiError(err);
+      setError(normalized);
+      throw normalized;
     } finally {
       setLoading(false);
     }
@@ -38,14 +40,14 @@ export const useInvitationTemplates = () => {
         });
         return newTemplate;
       } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : '創建模板失敗';
-        setError(errorMessage);
+        const normalized = normalizeApiError(err);
+        setError(normalized);
         toast({
           title: '錯誤',
-          description: errorMessage,
+          description: normalized.message,
           variant: 'destructive',
         });
-        throw err;
+        throw normalized;
       }
     },
     [toast]
@@ -66,14 +68,14 @@ export const useInvitationTemplates = () => {
         });
         return updated;
       } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : '更新模板失敗';
-        setError(errorMessage);
+        const normalized = normalizeApiError(err);
+        setError(normalized);
         toast({
           title: '錯誤',
-          description: errorMessage,
+          description: normalized.message,
           variant: 'destructive',
         });
-        throw err;
+        throw normalized;
       }
     },
     [toast]
@@ -91,14 +93,14 @@ export const useInvitationTemplates = () => {
           description: '模板已刪除',
         });
       } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : '刪除模板失敗';
-        setError(errorMessage);
+        const normalized = normalizeApiError(err);
+        setError(normalized);
         toast({
           title: '錯誤',
-          description: errorMessage,
+          description: normalized.message,
           variant: 'destructive',
         });
-        throw err;
+        throw normalized;
       }
     },
     [toast]
@@ -112,7 +114,7 @@ export const useInvitationTemplates = () => {
   return {
     templates,
     loading,
-    error,
+    error: error?.message ?? null,
     getTemplates,
     createTemplate,
     updateTemplate,
