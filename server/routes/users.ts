@@ -9,6 +9,8 @@ import { verifyJWT } from '../replitAuth';
 import { db } from '../db';
 import { users } from '../db/schema';
 import { getUserById } from '../db/queries';
+import { sendError } from '../lib/response';
+import { ErrorCodes } from '@shared/error-codes';
 
 const router = Router();
 
@@ -47,12 +49,12 @@ router.get('/users', verifyJWT, async (req: Request, res: Response) => {
   try {
     const currentId = getCurrentUserId(req);
     if (!currentId) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, 'Unauthorized');
     }
 
     const currentUser = await getUserById(currentId);
     if (!currentUser) {
-      return res.status(401).json({ error: 'User not found' });
+      return sendError(res, 401, ErrorCodes.AUTH_USER_NOT_FOUND, 'User not found');
     }
 
     const role = String(currentUser.role || '').toUpperCase();
@@ -89,8 +91,7 @@ router.get('/users', verifyJWT, async (req: Request, res: Response) => {
     return res.status(200).json(self);
   } catch (error: unknown) {
     console.error('[GET /api/users] Error:', error);
-    const message = error instanceof Error ? error.message : 'Failed to list users';
-    return res.status(500).json({ error: message });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, 'Internal server error');
   }
 });
 
@@ -102,12 +103,12 @@ router.get('/users/:id', verifyJWT, async (req: Request, res: Response) => {
   try {
     const currentId = getCurrentUserId(req);
     if (!currentId) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, 'Unauthorized');
     }
 
     const currentUser = await getUserById(currentId);
     if (!currentUser) {
-      return res.status(401).json({ error: 'User not found' });
+      return sendError(res, 401, ErrorCodes.AUTH_USER_NOT_FOUND, 'User not found');
     }
 
     const role = String(currentUser.role || '').toUpperCase();
@@ -115,12 +116,12 @@ router.get('/users/:id', verifyJWT, async (req: Request, res: Response) => {
     const targetId = req.params.id;
 
     if (!isAdmin && String(currentId) !== String(targetId)) {
-      return res.status(403).json({ error: 'Forbidden' });
+      return sendError(res, 403, ErrorCodes.FORBIDDEN, 'Forbidden');
     }
 
     const target = await getUserById(targetId);
     if (!target) {
-      return res.status(404).json({ error: 'User not found' });
+      return sendError(res, 404, ErrorCodes.NOT_FOUND, 'User not found');
     }
 
     const detail: UserDetail = {
@@ -135,8 +136,7 @@ router.get('/users/:id', verifyJWT, async (req: Request, res: Response) => {
     return res.status(200).json(detail);
   } catch (error: unknown) {
     console.error('[GET /api/users/:id] Error:', error);
-    const message = error instanceof Error ? error.message : 'Failed to get user';
-    return res.status(500).json({ error: message });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, 'Internal server error');
   }
 });
 

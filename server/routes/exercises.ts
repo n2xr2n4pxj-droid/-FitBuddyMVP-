@@ -3,6 +3,8 @@ import { db } from "../db";
 import { exercises } from "../db/schema";
 import { isAuthenticated } from "../replitAuth";
 import { asc, or, sql } from "drizzle-orm";
+import { sendError } from "../lib/response";
+import { ErrorCodes } from "@shared/error-codes";
 
 const router = Router();
 
@@ -50,9 +52,7 @@ router.get("/exercises", isAuthenticated, async (req: Request, res: Response) =>
     return res.status(200).json(rows);
   } catch (error: any) {
     console.error("❌ [API] GET /api/exercises Error:", error);
-    return res
-      .status(500)
-      .json({ error: error?.message ?? "Failed to fetch exercises" });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to fetch exercises");
   }
 });
 

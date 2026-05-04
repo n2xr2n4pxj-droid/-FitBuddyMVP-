@@ -3,6 +3,8 @@
 
 import { Router } from 'express';
 import { isAuthenticated } from '../replitAuth';
+import { sendError } from '../lib/response';
+import { ErrorCodes } from '@shared/error-codes';
 
 const router = Router();
 
@@ -66,7 +68,12 @@ router.get('/search', isAuthenticated, async (req, res) => {
     const { query } = req.query;
     
     if (!query || typeof query !== 'string' || query.trim().length < 2) {
-      return res.status(400).json({ error: 'Query required and must be at least 2 characters' });
+      return sendError(
+        res,
+        400,
+        ErrorCodes.VALIDATION_ERROR,
+        'Query required and must be at least 2 characters'
+      );
     }
     
     console.log(`[Open Food Facts API] Searching for: "${query}"`);
@@ -77,7 +84,7 @@ router.get('/search', isAuthenticated, async (req, res) => {
     res.json(foods);
   } catch (error: any) {
     console.error('[Open Food Facts API] Error:', error);
-    res.status(500).json({ error: 'Failed to search foods' });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, 'Failed to search foods');
   }
 });
 

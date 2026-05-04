@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { verifyJWT } from "../replitAuth";
 import { callGeminiAI } from "../services/aiService";
+import { sendError } from "../lib/response";
+import { ErrorCodes } from "@shared/error-codes";
 
 const router = Router();
 
@@ -30,7 +32,7 @@ router.post("/ai/generate-routine", verifyJWT, async (req: any, res: any) => {
   try {
     const { prompt } = req.body ?? {};
     if (!prompt || typeof prompt !== "string") {
-      return res.status(400).json({ error: "prompt is required" });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "prompt is required");
     }
 
     const systemPrompt = `You are a professional strength and hypertrophy coach.
@@ -67,11 +69,12 @@ Constraints:
     return res.status(200).json(json);
   } catch (error: any) {
     console.error("❌ [API] POST /api/ai/generate-routine Error:", error);
-    return res.status(500).json({
-      error:
-        error?.message ??
-        "Failed to generate routine from AI. Please try again later.",
-    });
+    return sendError(
+      res,
+      500,
+      ErrorCodes.INTERNAL_SERVER_ERROR,
+      "Failed to generate routine from AI. Please try again later.",
+    );
   }
 });
 
@@ -95,7 +98,7 @@ router.post("/ai/workout-insight", verifyJWT, async (req: any, res: any) => {
   try {
     const { routine, completedExercises } = req.body ?? {};
     if (!routine) {
-      return res.status(400).json({ error: "routine is required" });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "routine is required");
     }
 
     const name = routine?.name ?? "本次訓練";
@@ -127,11 +130,12 @@ Return ONLY valid JSON matching this shape:
     return res.status(200).json(json);
   } catch (error: any) {
     console.error("❌ [API] POST /api/ai/workout-insight Error:", error);
-    return res.status(500).json({
-      error:
-        error?.message ??
-        "Failed to generate workout summary from AI. Please try again later.",
-    });
+    return sendError(
+      res,
+      500,
+      ErrorCodes.INTERNAL_SERVER_ERROR,
+      "Failed to generate workout summary from AI. Please try again later.",
+    );
   }
 });
 

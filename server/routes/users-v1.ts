@@ -9,6 +9,8 @@ import { Router, Request, Response } from "express";
 import { db } from "../db";
 import { users } from "../db/schema";
 import { and, isNotNull, sql } from "drizzle-orm";
+import { sendError } from "../lib/response";
+import { ErrorCodes } from "@shared/error-codes";
 
 const router = Router();
 
@@ -17,7 +19,7 @@ router.get("/check-username", async (req: Request, res: Response) => {
     const raw = req.query.username;
     const username = typeof raw === "string" ? raw.trim() : "";
     if (!username) {
-      return res.status(400).json({ error: "username is required" });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "username is required");
     }
 
     const lower = username.toLowerCase();
@@ -40,8 +42,7 @@ router.get("/check-username", async (req: Request, res: Response) => {
     });
   } catch (e: unknown) {
     console.error("[GET /api/v1/users/check-username]", e);
-    const message = e instanceof Error ? e.message : "Failed to check username";
-    return res.status(500).json({ error: message });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Internal server error");
   }
 });
 

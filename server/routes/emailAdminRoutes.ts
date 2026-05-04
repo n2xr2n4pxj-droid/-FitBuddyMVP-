@@ -9,6 +9,8 @@ import emailService from "../services/emailService";
 import { authMiddleware } from "../middleware/auth";
 import { pool } from "../db";
 import { config } from "../config/env";
+import { sendError } from "../lib/response";
+import { ErrorCodes } from "@shared/error-codes";
 
 const router = express.Router();
 
@@ -18,12 +20,12 @@ const router = express.Router();
 const requireAdmin: RequestHandler = async (req: any, res: Response, next) => {
   try {
     if (!req.user) {
-      return res.status(401).json({ error: '未認證' });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '未認證');
     }
 
     const userId = req.user.id || req.user.claims?.sub;
     if (!userId) {
-      return res.status(401).json({ error: '未認證' });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, '未認證');
     }
 
     // 從數據庫查詢用戶角色
@@ -33,20 +35,20 @@ const requireAdmin: RequestHandler = async (req: any, res: Response, next) => {
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: '用戶不存在' });
+      return sendError(res, 404, ErrorCodes.NOT_FOUND, '用戶不存在');
     }
 
     const userRole = (result.rows[0].role || '').toUpperCase();
     
     // 只有 ADMIN 可以訪問
     if (userRole !== 'ADMIN') {
-      return res.status(403).json({ error: '需要管理員權限' });
+      return sendError(res, 403, ErrorCodes.FORBIDDEN, '需要管理員權限');
     }
 
     next();
   } catch (error) {
     console.error('❌ [requireAdmin] 中間件錯誤:', error);
-    res.status(500).json({ error: '服務器錯誤' });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, '服務器錯誤');
   }
 };
 
