@@ -17,6 +17,8 @@ import {
 } from "../db/schema";
 import { loadPlanExercisesJson } from "../services/planDetail";
 import { notifySessionFeedback } from "../services/notificationService";
+import { sendError } from "../lib/response";
+import { ErrorCodes } from "@shared/error-codes";
 
 const router = Router();
 
@@ -72,7 +74,7 @@ router.get("/workouts/routines", isAuthenticated, async (req: any, res: any) => 
   try {
     const userId = req.user?.claims?.sub ?? req.user?.id;
     if (!userId) {
-      return res.status(401).json({ error: "Unauthorized" });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
     }
     const clientIdParam = typeof req.query.clientId === "string" ? req.query.clientId.trim() : undefined;
     const coachIdParam = typeof req.query.coachId === "string" ? req.query.coachId.trim() : undefined;
@@ -82,20 +84,20 @@ router.get("/workouts/routines", isAuthenticated, async (req: any, res: any) => 
     let filterClientId: string | null = null;
     let filterCoachId: string | null = null;
     if (clientIdParam && coachIdParam) {
-      return res.status(400).json({ error: "Use either clientId or coachId, not both" });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "Use either clientId or coachId, not both");
     }
     if (clientIdParam) {
       if (clientIdParam !== userId) {
         const currentUser = await getUserById(userId);
         const role = String(currentUser?.role ?? "").toUpperCase();
         if (role !== "COACH" && role !== "ADMIN") {
-          return res.status(403).json({ error: "Only coach can query another client's routines" });
+          return sendError(res, 403, ErrorCodes.FORBIDDEN, "Only coach can query another client's routines");
         }
       }
       filterClientId = clientIdParam;
     } else if (coachIdParam) {
       if (coachIdParam !== userId) {
-        return res.status(403).json({ error: "Can only query your own routines as coach" });
+        return sendError(res, 403, ErrorCodes.FORBIDDEN, "Can only query your own routines as coach");
       }
       filterCoachId = coachIdParam;
     } else {
@@ -204,7 +206,7 @@ router.get("/workouts/routines", isAuthenticated, async (req: any, res: any) => 
     return res.json({ routines });
   } catch (err: any) {
     console.error("❌ [API] GET /workouts/routines Error:", err);
-    return res.status(500).json({ error: err?.message ?? "Failed to fetch routines" });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to fetch routines");
   }
 });
 
@@ -217,26 +219,26 @@ router.post("/workouts/routines", verifyJWT, async (req: any, res: any) => {
   try {
     const coachId = req.user?.id ?? req.user?.claims?.sub;
     if (!coachId) {
-      return res.status(401).json({ error: "Unauthorized" });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
     }
     const currentUser = await getUserById(coachId);
     if (!currentUser) {
-      return res.status(401).json({ error: "User not found" });
+      return sendError(res, 401, ErrorCodes.AUTH_USER_NOT_FOUND, "User not found");
     }
     const role = String(currentUser.role ?? "").toUpperCase();
     if (role !== "COACH" && role !== "ADMIN") {
-      return res.status(403).json({ error: "Only coach can create workout routines" });
+      return sendError(res, 403, ErrorCodes.FORBIDDEN, "Only coach can create workout routines");
     }
 
     const { clientId, name, scheduledDate, notes, exercises: exercisesPayload } = req.body;
     if (!clientId || typeof clientId !== "string" || !clientId.trim()) {
-      return res.status(400).json({ error: "clientId is required" });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "clientId is required");
     }
     if (!name || typeof name !== "string" || !name.trim()) {
-      return res.status(400).json({ error: "name is required" });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "name is required");
     }
     if (!exercisesPayload || !Array.isArray(exercisesPayload) || exercisesPayload.length === 0) {
-      return res.status(400).json({ error: "exercises array is required and must not be empty" });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "exercises array is required and must not be empty");
     }
 
     const scheduled = scheduledDate ? new Date(scheduledDate) : null;
@@ -349,7 +351,7 @@ router.post("/workouts/routines", verifyJWT, async (req: any, res: any) => {
   } catch (err: any) {
     console.error("❌ [API] POST /workouts/routines Error:", err);
     const message = err?.message ?? "Failed to create workout routine";
-    return res.status(400).json({ error: message });
+    return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, message);
   }
 });
 
@@ -360,16 +362,16 @@ router.post("/workouts/routines", verifyJWT, async (req: any, res: any) => {
 router.patch("/workouts/routines/:id", verifyJWT, async (req: any, res: any) => {
   try {
     const routineId = String(req.params.id ?? "").trim();
-    if (!routineId) return res.status(400).json({ error: "routine id is required" });
+    if (!routineId) return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "routine id is required");
 
     const coachId = String(req.user?.id ?? req.user?.claims?.sub ?? "").trim();
-    if (!coachId) return res.status(401).json({ error: "Unauthorized" });
+    if (!coachId) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
 
     const currentUser = await getUserById(coachId);
-    if (!currentUser) return res.status(401).json({ error: "User not found" });
+    if (!currentUser) return sendError(res, 401, ErrorCodes.AUTH_USER_NOT_FOUND, "User not found");
     const role = String(currentUser.role ?? "").toUpperCase();
     if (role !== "COACH" && role !== "ADMIN") {
-      return res.status(403).json({ error: "Only coach can update workout routines" });
+      return sendError(res, 403, ErrorCodes.FORBIDDEN, "Only coach can update workout routines");
     }
 
     const [routine] = await db
@@ -377,9 +379,9 @@ router.patch("/workouts/routines/:id", verifyJWT, async (req: any, res: any) => 
       .from(workoutRoutines)
       .where(eq(workoutRoutines.id, routineId))
       .limit(1);
-    if (!routine) return res.status(404).json({ error: "Routine not found" });
-    if (routine.deletedAt != null) return res.status(404).json({ error: "Routine not found" });
-    if (routine.coachId !== coachId) return res.status(403).json({ error: "Not authorized" });
+    if (!routine) return sendError(res, 404, ErrorCodes.WORKOUT_NOT_FOUND, "Routine not found");
+    if (routine.deletedAt != null) return sendError(res, 404, ErrorCodes.WORKOUT_NOT_FOUND, "Routine not found");
+    if (routine.coachId !== coachId) return sendError(res, 403, ErrorCodes.FORBIDDEN, "Not authorized");
 
     const body = req.body ?? {};
     const {
@@ -393,7 +395,7 @@ router.patch("/workouts/routines/:id", verifyJWT, async (req: any, res: any) => 
 
     if (nameRaw !== undefined) {
       if (typeof nameRaw !== "string" || !nameRaw.trim()) {
-        return res.status(400).json({ error: "name cannot be empty" });
+        return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "name cannot be empty");
       }
     }
 
@@ -579,7 +581,7 @@ router.patch("/workouts/routines/:id", verifyJWT, async (req: any, res: any) => 
   } catch (err: any) {
     console.error("❌ [API] PATCH /workouts/routines/:id Error:", err);
     const message = err?.message ?? "Failed to update routine";
-    return res.status(400).json({ error: message });
+    return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, message);
   }
 });
 
@@ -590,16 +592,16 @@ router.patch("/workouts/routines/:id", verifyJWT, async (req: any, res: any) => 
 router.delete("/workouts/routines/:id", verifyJWT, async (req: any, res: any) => {
   try {
     const routineId = String(req.params.id ?? "").trim();
-    if (!routineId) return res.status(400).json({ error: "routine id is required" });
+    if (!routineId) return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "routine id is required");
 
     const coachId = String(req.user?.id ?? req.user?.claims?.sub ?? "").trim();
-    if (!coachId) return res.status(401).json({ error: "Unauthorized" });
+    if (!coachId) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
 
     const currentUser = await getUserById(coachId);
-    if (!currentUser) return res.status(401).json({ error: "User not found" });
+    if (!currentUser) return sendError(res, 401, ErrorCodes.AUTH_USER_NOT_FOUND, "User not found");
     const role = String(currentUser.role ?? "").toUpperCase();
     if (role !== "COACH" && role !== "ADMIN") {
-      return res.status(403).json({ error: "Only coach can delete workout routines" });
+      return sendError(res, 403, ErrorCodes.FORBIDDEN, "Only coach can delete workout routines");
     }
 
     const [row] = await db
@@ -607,8 +609,8 @@ router.delete("/workouts/routines/:id", verifyJWT, async (req: any, res: any) =>
       .from(workoutRoutines)
       .where(eq(workoutRoutines.id, routineId))
       .limit(1);
-    if (!row) return res.status(404).json({ error: "Routine not found" });
-    if (row.coachId !== coachId) return res.status(403).json({ error: "Not authorized" });
+    if (!row) return sendError(res, 404, ErrorCodes.WORKOUT_NOT_FOUND, "Routine not found");
+    if (row.coachId !== coachId) return sendError(res, 403, ErrorCodes.FORBIDDEN, "Not authorized");
     if (row.deletedAt != null) {
       return res.status(204).end();
     }
@@ -621,7 +623,7 @@ router.delete("/workouts/routines/:id", verifyJWT, async (req: any, res: any) =>
     return res.status(204).end();
   } catch (err: any) {
     console.error("❌ [API] DELETE /workouts/routines/:id Error:", err);
-    return res.status(500).json({ error: err?.message ?? "Failed to delete routine" });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to delete routine");
   }
 });
 
@@ -630,7 +632,7 @@ router.post("/workouts/sessions", isAuthenticated, async (req: any, res: any) =>
   try {
     const userId = req.user?.claims?.sub ?? req.user?.id;
     if (!userId) {
-      return res.status(401).json({ error: "Unauthorized" });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
     }
 
     const {
@@ -649,7 +651,7 @@ router.post("/workouts/sessions", isAuthenticated, async (req: any, res: any) =>
     } = req.body ?? {};
 
     if (!Array.isArray(payloadExercises) || payloadExercises.length === 0) {
-      return res.status(400).json({ error: "exercises is required and must not be empty" });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "exercises is required and must not be empty");
     }
 
     if (routineId) {
@@ -659,10 +661,10 @@ router.post("/workouts/sessions", isAuthenticated, async (req: any, res: any) =>
         .where(eq(workoutRoutines.id, routineId))
         .limit(1);
       if (!routine[0]) {
-        return res.status(404).json({ error: "Routine not found" });
+        return sendError(res, 404, ErrorCodes.WORKOUT_NOT_FOUND, "Routine not found");
       }
       if (routine[0].clientId !== String(userId)) {
-        return res.status(403).json({ error: "Not authorized for this routine" });
+        return sendError(res, 403, ErrorCodes.FORBIDDEN, "Not authorized for this routine");
       }
     }
 
@@ -752,7 +754,7 @@ router.post("/workouts/sessions", isAuthenticated, async (req: any, res: any) =>
     return res.status(201).json(insertResult);
   } catch (err: any) {
     console.error("❌ [API] POST /workouts/sessions Error:", err);
-    return res.status(500).json({ error: err?.message ?? "Failed to log workout session" });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to log workout session");
   }
 });
 
@@ -761,7 +763,7 @@ router.get("/workouts/sessions/my", isAuthenticated, async (req: any, res: any) 
   try {
     const userId = req.user?.claims?.sub ?? req.user?.id;
     if (!userId) {
-      return res.status(401).json({ error: "Unauthorized" });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
     }
 
     const from = typeof req.query.from === "string" ? new Date(req.query.from) : null;
@@ -772,7 +774,7 @@ router.get("/workouts/sessions/my", isAuthenticated, async (req: any, res: any) 
     if (rawLimit !== undefined) {
       const parsedLimit = Number(rawLimit);
       if (!Number.isInteger(parsedLimit) || parsedLimit <= 0) {
-        return res.status(400).json({ error: "limit must be a positive integer" });
+        return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "limit must be a positive integer");
       }
       limit = Math.min(parsedLimit, 50);
     }
@@ -853,7 +855,7 @@ router.get("/workouts/sessions/my", isAuthenticated, async (req: any, res: any) 
     return res.json(result);
   } catch (err: any) {
     console.error("❌ [API] GET /workouts/sessions/my Error:", err);
-    return res.status(500).json({ error: err?.message ?? "Failed to fetch workout sessions" });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to fetch workout sessions");
   }
 });
 
@@ -862,18 +864,18 @@ router.get("/workouts/sessions/learner/:learnerId", verifyJWT, async (req: any, 
   try {
     const trainerId = req.user?.id ?? req.user?.claims?.sub;
     if (!trainerId) {
-      return res.status(401).json({ error: "Unauthorized" });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
     }
 
     const trainer = await getUserById(trainerId);
     const role = String(trainer?.role ?? "").toUpperCase();
     if (role !== "COACH" && role !== "ADMIN") {
-      return res.status(403).json({ error: "Only trainer can access learner sessions" });
+      return sendError(res, 403, ErrorCodes.FORBIDDEN, "Only trainer can access learner sessions");
     }
 
     const learnerId = String(req.params.learnerId || "").trim();
     if (!learnerId) {
-      return res.status(400).json({ error: "learnerId is required" });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "learnerId is required");
     }
 
     const relation = await db
@@ -888,7 +890,7 @@ router.get("/workouts/sessions/learner/:learnerId", verifyJWT, async (req: any, 
       )
       .limit(1);
     if (!relation[0]) {
-      return res.status(403).json({ error: "Forbidden" });
+      return sendError(res, 403, ErrorCodes.FORBIDDEN, "Forbidden");
     }
 
     const rawLimit = Array.isArray(req.query.limit) ? req.query.limit[0] : req.query.limit;
@@ -896,7 +898,7 @@ router.get("/workouts/sessions/learner/:learnerId", verifyJWT, async (req: any, 
     if (rawLimit !== undefined) {
       const parsedLimit = Number(rawLimit);
       if (!Number.isInteger(parsedLimit) || parsedLimit <= 0) {
-        return res.status(400).json({ error: "limit must be a positive integer" });
+        return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "limit must be a positive integer");
       }
       limit = Math.min(parsedLimit, 50);
     }
@@ -970,7 +972,7 @@ router.get("/workouts/sessions/learner/:learnerId", verifyJWT, async (req: any, 
     return res.json(result);
   } catch (err: any) {
     console.error("❌ [API] GET /workouts/sessions/learner/:learnerId Error:", err);
-    return res.status(500).json({ error: err?.message ?? "Failed to fetch learner workout sessions" });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to fetch learner workout sessions");
   }
 });
 
@@ -979,19 +981,19 @@ router.get("/workouts/sessions/learner/:learnerId/:sessionId", verifyJWT, async 
   try {
     const trainerId = req.user?.id ?? req.user?.claims?.sub;
     if (!trainerId) {
-      return res.status(401).json({ error: "Unauthorized" });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
     }
 
     const trainer = await getUserById(trainerId);
     const role = String(trainer?.role ?? "").toUpperCase();
     if (role !== "COACH" && role !== "ADMIN") {
-      return res.status(403).json({ error: "Only trainer can access learner session detail" });
+      return sendError(res, 403, ErrorCodes.FORBIDDEN, "Only trainer can access learner session detail");
     }
 
     const learnerId = String(req.params.learnerId || "").trim();
     const sessionId = String(req.params.sessionId || "").trim();
     if (!learnerId || !sessionId) {
-      return res.status(400).json({ error: "learnerId and sessionId are required" });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "learnerId and sessionId are required");
     }
 
     const relation = await db
@@ -1006,7 +1008,7 @@ router.get("/workouts/sessions/learner/:learnerId/:sessionId", verifyJWT, async 
       )
       .limit(1);
     if (!relation[0]) {
-      return res.status(403).json({ error: "Forbidden" });
+      return sendError(res, 403, ErrorCodes.FORBIDDEN, "Forbidden");
     }
 
     const sessionRows = await db
@@ -1026,10 +1028,10 @@ router.get("/workouts/sessions/learner/:learnerId/:sessionId", verifyJWT, async 
 
     const session = sessionRows[0];
     if (!session) {
-      return res.status(404).json({ error: "Session not found" });
+      return sendError(res, 404, ErrorCodes.NOT_FOUND, "Session not found");
     }
     if (session.userId !== learnerId) {
-      return res.status(403).json({ error: "Forbidden" });
+      return sendError(res, 403, ErrorCodes.FORBIDDEN, "Forbidden");
     }
 
     const exerciseRows = await db
@@ -1098,7 +1100,7 @@ router.get("/workouts/sessions/learner/:learnerId/:sessionId", verifyJWT, async 
     });
   } catch (err: any) {
     console.error("❌ [API] GET /workouts/sessions/learner/:learnerId/:sessionId Error:", err);
-    return res.status(500).json({ error: err?.message ?? "Failed to fetch learner workout session detail" });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to fetch learner workout session detail");
   }
 });
 
@@ -1107,35 +1109,35 @@ router.post("/workouts/sessions/:sessionId/feedback", verifyJWT, async (req: any
   try {
     const trainerId = req.user?.id ?? req.user?.claims?.sub;
     if (!trainerId) {
-      return res.status(401).json({ error: "Unauthorized" });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
     }
 
     const trainer = await getUserById(trainerId);
     const role = String(trainer?.role ?? "").toUpperCase();
     if (role !== "COACH" && role !== "ADMIN") {
-      return res.status(403).json({ error: "Only trainer can submit feedback" });
+      return sendError(res, 403, ErrorCodes.FORBIDDEN, "Only trainer can submit feedback");
     }
 
     const sessionId = String(req.params.sessionId || "").trim();
     if (!sessionId) {
-      return res.status(400).json({ error: "sessionId is required" });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "sessionId is required");
     }
 
     const contentRaw = typeof req.body?.content === "string" ? req.body.content : "";
     const content = contentRaw.trim();
     if (!content) {
-      return res.status(400).json({ error: "content is required" });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "content is required");
     }
     if (content.length > 500) {
-      return res.status(400).json({ error: "content must be 500 characters or less" });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "content must be 500 characters or less");
     }
 
     const { session, isTrainerOfLearner } = await getSessionWithTrainerAccess(sessionId, String(trainerId));
     if (!session) {
-      return res.status(404).json({ error: "Session not found" });
+      return sendError(res, 404, ErrorCodes.NOT_FOUND, "Session not found");
     }
     if (!isTrainerOfLearner) {
-      return res.status(403).json({ error: "Forbidden" });
+      return sendError(res, 403, ErrorCodes.FORBIDDEN, "Forbidden");
     }
 
     const [saved] = await db
@@ -1170,7 +1172,7 @@ router.post("/workouts/sessions/:sessionId/feedback", verifyJWT, async (req: any
     return res.status(200).json(saved);
   } catch (err: any) {
     console.error("❌ [API] POST /workouts/sessions/:sessionId/feedback Error:", err);
-    return res.status(500).json({ error: err?.message ?? "Failed to submit session feedback" });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to submit session feedback");
   }
 });
 
@@ -1179,22 +1181,22 @@ router.get("/workouts/sessions/:sessionId/feedback", verifyJWT, async (req: any,
   try {
     const currentUserId = req.user?.id ?? req.user?.claims?.sub;
     if (!currentUserId) {
-      return res.status(401).json({ error: "Unauthorized" });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
     }
 
     const sessionId = String(req.params.sessionId || "").trim();
     if (!sessionId) {
-      return res.status(400).json({ error: "sessionId is required" });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "sessionId is required");
     }
 
     const { session, isTrainerOfLearner } = await getSessionWithTrainerAccess(sessionId, String(currentUserId));
     if (!session) {
-      return res.status(404).json({ error: "Session not found" });
+      return sendError(res, 404, ErrorCodes.NOT_FOUND, "Session not found");
     }
 
     const isOwner = session.learnerId === String(currentUserId);
     if (!isOwner && !isTrainerOfLearner) {
-      return res.status(403).json({ error: "Forbidden" });
+      return sendError(res, 403, ErrorCodes.FORBIDDEN, "Forbidden");
     }
 
     const rows = await db
@@ -1229,7 +1231,7 @@ router.get("/workouts/sessions/:sessionId/feedback", verifyJWT, async (req: any,
     return res.status(200).json(feedbacks);
   } catch (err: any) {
     console.error("❌ [API] GET /workouts/sessions/:sessionId/feedback Error:", err);
-    return res.status(500).json({ error: err?.message ?? "Failed to fetch session feedback" });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to fetch session feedback");
   }
 });
 
@@ -1238,11 +1240,11 @@ router.get("/workouts/sessions/:sessionId", isAuthenticated, async (req: any, re
   try {
     const userId = req.user?.claims?.sub ?? req.user?.id;
     if (!userId) {
-      return res.status(401).json({ error: "Unauthorized" });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
     }
     const sessionId = String(req.params.sessionId || "").trim();
     if (!sessionId) {
-      return res.status(400).json({ error: "sessionId is required" });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "sessionId is required");
     }
 
     const sessionRows = await db
@@ -1262,10 +1264,10 @@ router.get("/workouts/sessions/:sessionId", isAuthenticated, async (req: any, re
 
     const session = sessionRows[0];
     if (!session) {
-      return res.status(404).json({ error: "Session not found" });
+      return sendError(res, 404, ErrorCodes.NOT_FOUND, "Session not found");
     }
     if (session.userId !== String(userId)) {
-      return res.status(403).json({ error: "Not authorized for this session" });
+      return sendError(res, 403, ErrorCodes.FORBIDDEN, "Not authorized for this session");
     }
 
     const exerciseRows = await db
@@ -1334,7 +1336,7 @@ router.get("/workouts/sessions/:sessionId", isAuthenticated, async (req: any, re
     });
   } catch (err: any) {
     console.error("❌ [API] GET /workouts/sessions/:sessionId Error:", err);
-    return res.status(500).json({ error: err?.message ?? "Failed to fetch workout session detail" });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to fetch workout session detail");
   }
 });
 
@@ -1344,7 +1346,7 @@ router.post("/workouts", isAuthenticated, async (req: any, res: any) => {
     const userId = req.user?.claims?.sub || req.user?.id;
     
     if (!userId) {
-      return res.status(401).json({ error: "Not authenticated" });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Not authenticated");
     }
 
     const {
@@ -1464,7 +1466,7 @@ router.post("/workouts", isAuthenticated, async (req: any, res: any) => {
     res.status(201).json(result.rows[0]);
   } catch (error: any) {
     console.error("Error creating workout:", error);
-    res.status(500).json({ error: "Failed to create workout", details: error.message });
+    sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to create workout");
   }
 });
 
@@ -1474,7 +1476,7 @@ router.get("/workouts", isAuthenticated, async (req: any, res: any) => {
     const userId = req.user?.claims?.sub || req.user?.id;
     
     if (!userId) {
-      return res.status(401).json({ error: "Not authenticated" });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Not authenticated");
     }
 
     const { date } = req.query;
@@ -1558,7 +1560,7 @@ router.get("/workouts", isAuthenticated, async (req: any, res: any) => {
     res.json(workouts);
   } catch (error: any) {
     console.error("Error fetching workouts:", error);
-    res.status(500).json({ error: "Failed to fetch workouts", details: error.message });
+    sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to fetch workouts");
   }
 });
 
@@ -1569,7 +1571,7 @@ router.get("/workouts/:id", isAuthenticated, async (req: any, res: any) => {
     const workoutId = req.params.id;
 
     if (!userId) {
-      return res.status(401).json({ error: "Not authenticated" });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Not authenticated");
     }
 
     const result = await pool.query(
@@ -1578,13 +1580,13 @@ router.get("/workouts/:id", isAuthenticated, async (req: any, res: any) => {
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: "Workout not found" });
+      return sendError(res, 404, ErrorCodes.NOT_FOUND, "Workout not found");
     }
 
     res.json(result.rows[0]);
   } catch (error: any) {
     console.error("Error fetching workout:", error);
-    res.status(500).json({ error: "Failed to fetch workout", details: error.message });
+    sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to fetch workout");
   }
 });
 
@@ -1595,7 +1597,7 @@ router.put("/workouts/:id", isAuthenticated, async (req: any, res: any) => {
     const workoutId = req.params.id;
 
     if (!userId) {
-      return res.status(401).json({ error: "Not authenticated" });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Not authenticated");
     }
 
     const {
@@ -1706,7 +1708,7 @@ router.put("/workouts/:id", isAuthenticated, async (req: any, res: any) => {
     updates.push(`updated_at = NOW()`);
 
     if (updates.length === 1) {
-      return res.status(400).json({ error: "No fields to update" });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "No fields to update");
     }
 
     const updateQuery = `UPDATE workouts SET ${updates.join(
@@ -1718,7 +1720,7 @@ router.put("/workouts/:id", isAuthenticated, async (req: any, res: any) => {
     res.json(result.rows[0]);
   } catch (error: any) {
     console.error("Error updating workout:", error);
-    res.status(500).json({ error: "Failed to update workout", details: error.message });
+    sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to update workout");
   }
 });
 
@@ -1729,7 +1731,7 @@ router.delete("/workouts/:id", isAuthenticated, async (req: any, res: any) => {
     const workoutId = req.params.id;
 
     if (!userId) {
-      return res.status(401).json({ error: "Not authenticated" });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Not authenticated");
     }
 
     const existingResult = await pool.query(
@@ -1750,7 +1752,7 @@ router.delete("/workouts/:id", isAuthenticated, async (req: any, res: any) => {
     res.json({ message: "Workout deleted successfully" });
   } catch (error: any) {
     console.error("Error deleting workout:", error);
-    res.status(500).json({ error: "Failed to delete workout", details: error.message });
+    sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to delete workout");
   }
 });
 
@@ -1763,7 +1765,7 @@ router.get(
       const userId = req.user?.claims?.sub || req.user?.id;
 
       if (!userId) {
-        return res.status(401).json({ error: "Not authenticated" });
+        return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Not authenticated");
       }
 
       // 從 exercises JSON 中提取個人最佳記錄
@@ -1823,7 +1825,7 @@ router.get(
       res.json(personalBests);
     } catch (error: any) {
       console.error("Error fetching personal best:", error);
-      res.status(500).json({ error: "Failed to fetch personal best", details: error.message });
+      sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to fetch personal best");
     }
   }
 );
