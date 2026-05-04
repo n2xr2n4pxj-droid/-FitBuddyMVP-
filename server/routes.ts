@@ -27,6 +27,8 @@ import dashboardRoutes from "./routes/dashboard";
 import notificationsRoutes from "./routes/notifications";
 import analyticsRoutes from "./routes/analytics";
 import nutritionRoutes from "./routes/nutrition";
+import { sendError } from "./lib/response";
+import { ErrorCodes } from "@shared/error-codes";
 
 // ==========================================
 // 速率限制：防止暴力破解 / 帳號枚舉
@@ -112,7 +114,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const userId = req.user?.claims?.sub || req.user?.id;
       if (!userId) {
-        return res.status(401).json({ error: "Not authenticated" });
+        return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Not authenticated");
       }
 
       const { pool } = await import("./db");
@@ -124,7 +126,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
 
       if (result.rows.length === 0) {
-        return res.status(401).json({ error: "User not found" });
+        return sendError(res, 401, ErrorCodes.AUTH_USER_NOT_FOUND, "User not found");
       }
 
       const dbUser = result.rows[0];
@@ -371,7 +373,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(personalBests);
     } catch (error) {
       console.error("Error fetching personal best:", error);
-      res.status(500).json({ error: "Failed to fetch personal best" });
+      return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to fetch personal best");
     }
   });
 
@@ -553,7 +555,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(result.rows[0]);
     } catch (error: any) {
       console.error("Error updating workout:", error);
-      res.status(500).json({ error: "Failed to update workout" });
+      return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to update workout");
     }
   });
 
@@ -704,7 +706,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       if (!mealId) {
-        return res.status(400).json({ error: "Invalid meal ID" });
+        return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "Invalid meal ID");
       }
 
       // Extract update fields (support both camelCase and snake_case for compatibility)
@@ -736,7 +738,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .limit(1);
 
       if (!existingMeal) {
-        return res.status(404).json({ error: "Meal not found or access denied" });
+        return sendError(res, 404, ErrorCodes.NOT_FOUND, "Meal not found or access denied");
       }
 
       // Build update object with explicit field handling
