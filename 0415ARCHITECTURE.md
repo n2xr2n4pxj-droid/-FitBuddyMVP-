@@ -319,11 +319,96 @@ case "schedule":
 ## 建議下一步行動（優先順序）
 
 1. **（已完成）統一 API 客戶端層**：`api.ts` 以 `request` facade 統一 HTTP 呼叫；token key、錯誤正規化、retry/refresh 與並發 401 單飛機制集中於 `api-client.ts`。  
-2. **清理認證與路由遺留**：確認唯一入口路由（wouter），淘汰舊 `auth-*` pages 與重複 route config。  
+2. **（已完成）清理認證與路由遺留**：確認唯一入口路由（wouter），淘汰舊 `auth-*` pages 與重複 route config。  
 3. **完成註冊流程 TODO**：補齊 `RegisterFlow` 驗證/錯誤顯示，避免流程中斷。  
 4. **（已完成）收斂 DB schema 策略**：已定版 Drizzle 為單一真實來源，Prisma schema/依賴已移除。  
-5. **建立錯誤契約標準**：後端統一 `{ errorCode, message, logId }`，前端單一解析層。  
+5. **（已完成）建立錯誤契約標準**：後端統一 `{ errorCode, message, logId }`，前端單一解析層。  
 6. **補測試空白區**：notifications、analytics、nutrition plans 的 API/前端互動測試。  
+
+---
+
+## Error Contract Audit（2026-04-19）
+
+> 目的：第 5 項動碼前盤點；下列數字來自 repo 內 **grep**，為**現狀上界／需人工再判讀**（例如同一行未寫 `success:` 的 `res.json({...})` 可能仍是成功回應）。
+
+### Step 1 — 後端 `server/routes`（非標準 `.json({` 掃描）
+
+**掃描條件**（可重現）：
+
+```bash
+grep -rn "\.json({" server/routes --include="*.ts" | grep -v "success:" | wc -l
+grep -rn "\.json({" server/routes --include="*.ts" | grep -v "success:" \
+  | sed 's/.*\/\([^/]*\.ts\):.*/\1/' | sort | uniq -c | sort -rn
+```
+
+| 檔案 | 命中行數（同上條件） |
+|------|---------------------|
+| `workouts.ts` | 94 |
+| `auth.ts` | 76 |
+| `invitations.ts` | 54 |
+| `plans.ts` | 46 |
+| `coaches.ts` | 29 |
+| `analytics.ts` | 24 |
+| `notifications.ts` | 23 |
+| `emailAdminRoutes.ts` | 23 |
+| `coach-client.ts` | 22 |
+| `nutrition.ts` | 14 |
+| `users.ts` | 8 |
+| `users-v1.ts` | 4 |
+| `dashboard.ts` | 4 |
+| `ai.ts` | 4 |
+| `food.ts` | 2 |
+| `health.ts` | 1 |
+| `exercises.ts` | 1 |
+| **合計** | **429** |
+
+**同一掃描範圍內，錯誤相關 key 出現次數**（僅計入該行同時含 `error:` / `message:` / `errorCode:` 者，再擷取 key）：
+
+```bash
+grep -rn "\.json({" server/routes --include="*.ts" \
+  | grep -E "error:|message:|errorCode:" \
+  | grep -oE "(error|message|errorCode|logId|code):" \
+  | sort | uniq -c | sort -rn
+```
+
+| key（字尾 `:`） | 次數 |
+|------------------|------|
+| `error:` | 322 |
+| `message:` | 15 |
+| `errorCode:` / `logId:` / `code:` | 0（此管道未單獨計到；見下） |
+
+**`errorCode` / `logId` 字樣**在 `server/routes` 內目前主要出現在：`invitations.ts`、`emailAdminRoutes.ts`、`analytics.ts`、`auth.ts`（其餘路由多為 `{ error: '...' }` 字串形）。
+
+### Step 2 — 前端現狀
+
+**單一解析層（已存在）**：`client/src/lib/api-error.ts` 的 `extractErrorPayload` 會從 body 讀取 `message` 或 **`error`（字串）**、`errorCode` 或 **`code`**、`logId`；`client/src/lib/api-client.ts` 的 `normalizeApiError` 對 axios 錯誤以 `extractErrorPayload(error.response?.data)` 正規化為 `AppApiError`。
+
+**仍可能繞過上述管線的寫法**（粗掃，排除檔名含 `extractErrorPayload` / `normalizeApiError` / `api-error` 的行）：
+
+```bash
+grep -rn "\.message\|response\.data\.error\|err\.response" \
+  client/src --include="*.ts" --include="*.tsx" \
+  | grep -v "node_modules\|extractErrorPayload\|normalizeApiError\|api-error" \
+  | wc -l
+```
+
+- **約 124 行**命中；其中混有 **表單 `errors.*.message`、邀請函 UI `invitation.message`** 等非 HTTP API 情境，實際待收斂的 `catch`／toast 需逐檔人工過濾。  
+- **前 30 筆範例**（代表模式）：`useRegisterStore.ts`（`error?.response?.data?.message`）、`GoogleLoginButton.tsx`（讀 `errorData.message` / `errorData.error`）、`CoachInvitationModal` / `ClientList` / `WorkoutPlanEditor`（`err instanceof Error ? err.message`）、`NotificationSettings.tsx`、`InvitationCard.tsx`、`LearnerDashboard.tsx` 等。
+
+### Step 3 — `shared/` 與結論
+
+- `shared/` 目前僅有 `schema.ts`，**尚無**共用錯誤 DTO／`errorCode` 列舉；契約型別可後續新增（例如 `shared/errors.ts` 或與現有 `schema` 分離）。  
+- **結論**：後端改動面以 **`workouts` / `auth` / `invitations` / `plans`** 最大；前端已有 **`normalizeApiError` + `extractErrorPayload`**，第 5 項實作宜 **先收斂後端輸出**，再 **刪減各元件對 `error.message` 的假設**，並保留一輪 **人工排除非 API 的 `.message` 命中**。
+
+---
+
+## Error Contract Completion Update（2026-05-04）
+
+- **第 5 項狀態**：已完成。  
+- **後端驗收**：`server` 目錄已清零 legacy `res.status(...).json({ error: ... })`（掃描結果為 0）。  
+- **前端驗收**：主流程已收斂到 `normalizeApiError` / `AppApiError` 單一解析層。  
+- **保留命中（可接受）**：僅剩 `client/src/lib/api-client.ts`（核心正規化實作）、`client/src/lib/authUtils.ts`（401 防禦性 fallback）、`client/src/components/settings/NotificationSettings.tsx`（既有 helper，刻意保留）。  
+- **備註**：`NotificationSettings` 若後續需要，也可在 Phase 6 再統一切到 `normalizeApiError`，目前不影響第 5 項完成判定。
 
 ---
 
