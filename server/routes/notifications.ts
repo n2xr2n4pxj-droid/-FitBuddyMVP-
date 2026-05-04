@@ -4,6 +4,8 @@ import { db } from "../db";
 import { notifications, pushSubscriptions, userNotificationPreferences } from "../db/schema";
 import { verifyJWT } from "../replitAuth";
 import { sendPushToUser } from "../services/webPushService";
+import { sendError } from "../lib/response";
+import { ErrorCodes } from "@shared/error-codes";
 
 const router = Router();
 
@@ -36,20 +38,25 @@ async function getOrCreatePreferences(userId: string) {
 router.get("/notifications/preferences", verifyJWT, async (req: any, res: any) => {
   try {
     const userId = getCurrentUserId(req);
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    if (!userId) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
 
     const pref = await getOrCreatePreferences(userId);
     return res.json(pref);
   } catch (error) {
     console.error("[API] GET /notifications/preferences Error:", error);
-    return res.status(500).json({ error: "Failed to fetch notification preferences" });
+    return sendError(
+      res,
+      500,
+      ErrorCodes.INTERNAL_SERVER_ERROR,
+      "Failed to fetch notification preferences",
+    );
   }
 });
 
 router.put("/notifications/preferences", verifyJWT, async (req: any, res: any) => {
   try {
     const userId = getCurrentUserId(req);
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    if (!userId) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
 
     const current = await getOrCreatePreferences(userId);
     const body = req.body ?? {};
@@ -84,14 +91,19 @@ router.put("/notifications/preferences", verifyJWT, async (req: any, res: any) =
     return res.json(updated);
   } catch (error) {
     console.error("[API] PUT /notifications/preferences Error:", error);
-    return res.status(500).json({ error: "Failed to update notification preferences" });
+    return sendError(
+      res,
+      500,
+      ErrorCodes.INTERNAL_SERVER_ERROR,
+      "Failed to update notification preferences",
+    );
   }
 });
 
 async function upsertPushSubscription(req: any, res: any) {
   try {
     const userId = getCurrentUserId(req);
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    if (!userId) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
 
     const endpoint = String(req.body?.endpoint ?? "").trim();
     const auth = String(req.body?.auth ?? "").trim();
@@ -103,7 +115,12 @@ async function upsertPushSubscription(req: any, res: any) {
         : (req.headers["user-agent"] ?? "").toString().slice(0, 512);
 
     if (!endpoint || !auth || !p256dh) {
-      return res.status(400).json({ error: "endpoint, auth, p256dh are required" });
+      return sendError(
+        res,
+        400,
+        ErrorCodes.VALIDATION_ERROR,
+        "endpoint, auth, p256dh are required",
+      );
     }
 
     const now = new Date();
@@ -136,7 +153,7 @@ async function upsertPushSubscription(req: any, res: any) {
     return res.status(201).json({ success: true, subscription: saved });
   } catch (error) {
     console.error("[API] POST /notifications/subscriptions Error:", error);
-    return res.status(500).json({ error: "Failed to save push subscription" });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to save push subscription");
   }
 }
 
@@ -147,10 +164,10 @@ router.post("/notifications/subscriptions", verifyJWT, upsertPushSubscription);
 async function deletePushSubscription(req: any, res: any) {
   try {
     const userId = getCurrentUserId(req);
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    if (!userId) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
 
     const endpoint = String(req.body?.endpoint ?? "").trim();
-    if (!endpoint) return res.status(400).json({ error: "endpoint is required" });
+    if (!endpoint) return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "endpoint is required");
 
     await db
       .delete(pushSubscriptions)
@@ -159,7 +176,7 @@ async function deletePushSubscription(req: any, res: any) {
     return res.json({ success: true });
   } catch (error) {
     console.error("[API] DELETE /notifications/subscriptions Error:", error);
-    return res.status(500).json({ error: "Failed to delete push subscription" });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to delete push subscription");
   }
 }
 
@@ -170,7 +187,7 @@ router.delete("/notifications/subscriptions", verifyJWT, deletePushSubscription)
 router.get("/notifications/my", verifyJWT, async (req: any, res: any) => {
   try {
     const userId = getCurrentUserId(req);
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    if (!userId) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
 
     const rawLimit = Number(req.query?.limit ?? 20);
     const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(Math.trunc(rawLimit), 1), 50) : 20;
@@ -214,14 +231,14 @@ router.get("/notifications/my", verifyJWT, async (req: any, res: any) => {
     });
   } catch (error) {
     console.error("[API] GET /notifications/my Error:", error);
-    return res.status(500).json({ error: "Failed to fetch notifications" });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to fetch notifications");
   }
 });
 
 router.get("/notifications/unread-count", verifyJWT, async (req: any, res: any) => {
   try {
     const userId = getCurrentUserId(req);
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    if (!userId) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
 
     const rows = await db
       .select({ count: sql<number>`count(*)` })
@@ -231,16 +248,18 @@ router.get("/notifications/unread-count", verifyJWT, async (req: any, res: any) 
     return res.json({ count });
   } catch (error) {
     console.error("[API] GET /notifications/unread-count Error:", error);
-    return res.status(500).json({ error: "Failed to fetch unread count" });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to fetch unread count");
   }
 });
 
 router.post("/notifications/:id/read", verifyJWT, async (req: any, res: any) => {
   try {
     const userId = getCurrentUserId(req);
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    if (!userId) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
     const notificationId = String(req.params?.id ?? "").trim();
-    if (!notificationId) return res.status(400).json({ error: "notification id is required" });
+    if (!notificationId) {
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "notification id is required");
+    }
 
     const [updated] = await db
       .update(notifications)
@@ -248,7 +267,7 @@ router.post("/notifications/:id/read", verifyJWT, async (req: any, res: any) => 
       .where(and(eq(notifications.id, notificationId), eq(notifications.userId, userId)))
       .returning({ id: notifications.id, isRead: notifications.isRead, readAt: notifications.readAt });
 
-    if (!updated) return res.status(404).json({ error: "Notification not found" });
+    if (!updated) return sendError(res, 404, ErrorCodes.NOT_FOUND, "Notification not found");
     return res.json({
       id: updated.id,
       isRead: updated.isRead,
@@ -256,14 +275,14 @@ router.post("/notifications/:id/read", verifyJWT, async (req: any, res: any) => 
     });
   } catch (error) {
     console.error("[API] POST /notifications/:id/read Error:", error);
-    return res.status(500).json({ error: "Failed to mark notification as read" });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to mark notification as read");
   }
 });
 
 router.post("/notifications/test-push", verifyJWT, async (req: any, res: any) => {
   try {
     const userId = getCurrentUserId(req);
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    if (!userId) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
 
     await sendPushToUser(userId, {
       type: "workout_reminder",
@@ -276,7 +295,7 @@ router.post("/notifications/test-push", verifyJWT, async (req: any, res: any) =>
     return res.json({ success: true });
   } catch (error) {
     console.error("[API] POST /notifications/test-push Error:", error);
-    return res.status(500).json({ error: "Failed to send test push" });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to send test push");
   }
 });
 

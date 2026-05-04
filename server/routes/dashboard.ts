@@ -3,6 +3,8 @@ import { db } from "../db";
 import { getUserById } from "../db/queries";
 import { verifyJWT } from "../replitAuth";
 import { getLearnerDashboardOverview } from "../services/dashboard";
+import { sendError } from "../lib/response";
+import { ErrorCodes } from "@shared/error-codes";
 
 const router = Router();
 
@@ -18,19 +20,24 @@ function isTrainerRole(role: string | null | undefined): boolean {
 router.get("/learner/overview", verifyJWT, async (req: any, res: any) => {
   try {
     const learnerId = getCurrentUserId(req);
-    if (!learnerId) return res.status(401).json({ error: "Unauthorized" });
+    if (!learnerId) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
 
     const currentUser = await getUserById(learnerId);
-    if (!currentUser) return res.status(401).json({ error: "Unauthorized" });
+    if (!currentUser) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
     if (isTrainerRole(currentUser.role)) {
-      return res.status(403).json({ error: "Only learner can access dashboard overview" });
+      return sendError(
+        res,
+        403,
+        ErrorCodes.FORBIDDEN,
+        "Only learner can access dashboard overview",
+      );
     }
 
     const overview = await getLearnerDashboardOverview(db, learnerId);
     return res.json(overview);
   } catch (err: any) {
     console.error("[API] GET /dashboard/learner/overview Error:", err);
-    return res.status(500).json({ error: "Failed to fetch learner dashboard overview" });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to fetch learner dashboard overview");
   }
 });
 

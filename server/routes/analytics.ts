@@ -10,6 +10,8 @@ import {
 } from "../db/schema";
 import { verifyJWT } from "../replitAuth";
 import { assertCanAccessTargetUser } from "../lib/coachAccess";
+import { sendError } from "../lib/response";
+import { ErrorCodes } from "@shared/error-codes";
 
 const router = Router();
 
@@ -42,26 +44,28 @@ function serializeBodyLog(row: typeof bodyCompositionLogs.$inferSelect) {
 router.post("/body-composition", verifyJWT, async (req: any, res: any) => {
   try {
     const actorId = getCurrentUserId(req);
-    if (!actorId) return res.status(401).json({ error: "Unauthorized" });
+    if (!actorId) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
 
     const actor = await getUserById(actorId);
-    if (!actor) return res.status(401).json({ error: "Unauthorized" });
+    if (!actor) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
 
     const body = req.body ?? {};
     const targetUserId = String(body.userId ?? actorId).trim();
     const ok = await assertCanAccessTargetUser(actorId, actor.role, targetUserId);
-    if (!ok) return res.status(403).json({ error: "Forbidden" });
+    if (!ok) return sendError(res, 403, ErrorCodes.FORBIDDEN, "Forbidden");
 
     const measuredAtRaw = body.measuredAt;
-    if (!measuredAtRaw) return res.status(400).json({ error: "measuredAt is required" });
+    if (!measuredAtRaw) {
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "measuredAt is required");
+    }
     const measuredAt = new Date(String(measuredAtRaw));
     if (Number.isNaN(measuredAt.getTime())) {
-      return res.status(400).json({ error: "invalid measuredAt" });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "invalid measuredAt");
     }
 
     const weight = body.weight;
     if (weight === undefined || weight === null || weight === "") {
-      return res.status(400).json({ error: "weight is required" });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "weight is required");
     }
 
     const [inserted] = await db
@@ -82,7 +86,7 @@ router.post("/body-composition", verifyJWT, async (req: any, res: any) => {
     return res.status(201).json(serializeBodyLog(inserted));
   } catch (err) {
     console.error("[API] POST /analytics/body-composition Error:", err);
-    return res.status(500).json({ error: "Failed to create body composition log" });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to create body composition log");
   }
 });
 
@@ -90,16 +94,16 @@ router.post("/body-composition", verifyJWT, async (req: any, res: any) => {
 router.get("/body-composition/:userId", verifyJWT, async (req: any, res: any) => {
   try {
     const actorId = getCurrentUserId(req);
-    if (!actorId) return res.status(401).json({ error: "Unauthorized" });
+    if (!actorId) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
 
     const actor = await getUserById(actorId);
-    if (!actor) return res.status(401).json({ error: "Unauthorized" });
+    if (!actor) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
 
     const targetUserId = String(req.params.userId ?? "").trim();
-    if (!targetUserId) return res.status(400).json({ error: "userId is required" });
+    if (!targetUserId) return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "userId is required");
 
     const ok = await assertCanAccessTargetUser(actorId, actor.role, targetUserId);
-    if (!ok) return res.status(403).json({ error: "Forbidden" });
+    if (!ok) return sendError(res, 403, ErrorCodes.FORBIDDEN, "Forbidden");
 
     const fromQ = req.query.from ? new Date(String(req.query.from)) : null;
     const toQ = req.query.to ? new Date(String(req.query.to)) : null;
@@ -130,7 +134,7 @@ router.get("/body-composition/:userId", verifyJWT, async (req: any, res: any) =>
     return res.json(rows.map(serializeBodyLog));
   } catch (err) {
     console.error("[API] GET /analytics/body-composition/:userId Error:", err);
-    return res.status(500).json({ error: "Failed to fetch body composition logs" });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to fetch body composition logs");
   }
 });
 
@@ -138,13 +142,13 @@ router.get("/body-composition/:userId", verifyJWT, async (req: any, res: any) =>
 router.delete("/body-composition/:logId", verifyJWT, async (req: any, res: any) => {
   try {
     const actorId = getCurrentUserId(req);
-    if (!actorId) return res.status(401).json({ error: "Unauthorized" });
+    if (!actorId) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
 
     const actor = await getUserById(actorId);
-    if (!actor) return res.status(401).json({ error: "Unauthorized" });
+    if (!actor) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
 
     const logId = String(req.params.logId ?? "").trim();
-    if (!logId) return res.status(400).json({ error: "logId is required" });
+    if (!logId) return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "logId is required");
 
     const [existing] = await db
       .select()
@@ -152,16 +156,16 @@ router.delete("/body-composition/:logId", verifyJWT, async (req: any, res: any) 
       .where(eq(bodyCompositionLogs.id, logId))
       .limit(1);
 
-    if (!existing) return res.status(404).json({ error: "Not found" });
+    if (!existing) return sendError(res, 404, ErrorCodes.NOT_FOUND, "Not found");
 
     const ok = await assertCanAccessTargetUser(actorId, actor.role, existing.userId);
-    if (!ok) return res.status(403).json({ error: "Forbidden" });
+    if (!ok) return sendError(res, 403, ErrorCodes.FORBIDDEN, "Forbidden");
 
     await db.delete(bodyCompositionLogs).where(eq(bodyCompositionLogs.id, logId));
     return res.status(204).send();
   } catch (err) {
     console.error("[API] DELETE /analytics/body-composition/:logId Error:", err);
-    return res.status(500).json({ error: "Failed to delete body composition log" });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to delete body composition log");
   }
 });
 
@@ -169,20 +173,20 @@ router.delete("/body-composition/:logId", verifyJWT, async (req: any, res: any) 
 router.get("/workout-volume/:userId", verifyJWT, async (req: any, res: any) => {
   try {
     const actorId = getCurrentUserId(req);
-    if (!actorId) return res.status(401).json({ error: "Unauthorized" });
+    if (!actorId) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
 
     const actor = await getUserById(actorId);
-    if (!actor) return res.status(401).json({ error: "Unauthorized" });
+    if (!actor) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
 
     const targetUserId = String(req.params.userId ?? "").trim();
-    if (!targetUserId) return res.status(400).json({ error: "userId is required" });
+    if (!targetUserId) return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "userId is required");
 
     const ok = await assertCanAccessTargetUser(actorId, actor.role, targetUserId);
-    if (!ok) return res.status(403).json({ error: "Forbidden" });
+    if (!ok) return sendError(res, 403, ErrorCodes.FORBIDDEN, "Forbidden");
 
     const rawWeeks = Number(req.query.weeks ?? 8);
     if (!Number.isFinite(rawWeeks) || rawWeeks < 1 || rawWeeks > 24) {
-      return res.status(400).json({ error: "weeks must be between 1 and 24" });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "weeks must be between 1 and 24");
     }
     const weeks = Math.trunc(rawWeeks);
 
@@ -247,7 +251,7 @@ router.get("/workout-volume/:userId", verifyJWT, async (req: any, res: any) => {
     return res.json(out);
   } catch (err) {
     console.error("[API] GET /analytics/workout-volume/:userId Error:", err);
-    return res.status(500).json({ error: "Failed to fetch workout volume" });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to fetch workout volume");
   }
 });
 
