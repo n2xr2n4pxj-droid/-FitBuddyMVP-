@@ -3,6 +3,8 @@ import { db, pool } from '../db';
 import { users, coachClients } from '../db/schema';
 import { eq, and } from 'drizzle-orm';
 import { verifyJWT } from '../replitAuth';
+import { sendError } from '../lib/response';
+import { ErrorCodes } from '@shared/error-codes';
 
 const router = Router();
 
@@ -12,8 +14,8 @@ router.post('/coaches/add-client', verifyJWT, async (req: any, res: any) => {
     const { clientEmail } = req.body;
     const coachId = req.user?.claims?.sub || req.user?.id;
 
-    if (!coachId) return res.status(401).json({ error: 'Not authenticated' });
-    if (!clientEmail) return res.status(400).json({ error: 'Client email required' });
+    if (!coachId) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, 'Not authenticated');
+    if (!clientEmail) return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, 'Client email required');
 
     const clientResult = await db
       .select()
@@ -22,8 +24,8 @@ router.post('/coaches/add-client', verifyJWT, async (req: any, res: any) => {
       .limit(1);
 
     const client = clientResult[0];
-    if (!client) return res.status(404).json({ error: 'User not found' });
-    if (client.id === coachId) return res.status(400).json({ error: 'Cannot add yourself as client' });
+    if (!client) return sendError(res, 404, ErrorCodes.NOT_FOUND, 'User not found');
+    if (client.id === coachId) return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, 'Cannot add yourself as client');
 
     const existing = await db
       .select()
@@ -32,7 +34,9 @@ router.post('/coaches/add-client', verifyJWT, async (req: any, res: any) => {
       .limit(1);
 
     if (existing.length > 0) {
-      return res.status(400).json({ error: 'Client already added', status: existing[0].status });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, 'Client already added', {
+        details: { status: existing[0].status },
+      });
     }
 
     const newRecord = await db
@@ -43,7 +47,7 @@ router.post('/coaches/add-client', verifyJWT, async (req: any, res: any) => {
     res.json({ success: true, newCoachClient: newRecord[0] });
   } catch (error) {
     console.error('❌ [coaches] Error adding client:', error);
-    res.status(500).json({ error: 'Failed to add client' });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, 'Failed to add client');
   }
 });
 
@@ -53,13 +57,13 @@ router.post('/coaches/invite', verifyJWT, async (req: any, res: any) => {
     const { email } = req.body;
     const coachId = req.user?.claims?.sub || req.user?.id;
 
-    if (!email) return res.status(400).json({ error: 'Email is required' });
+    if (!email) return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, 'Email is required');
 
     const clientResult = await db.select().from(users).where(eq(users.email, email)).limit(1);
     const client = clientResult[0];
 
-    if (!client) return res.status(404).json({ error: 'User not found' });
-    if (client.id === coachId) return res.status(400).json({ error: 'Cannot invite yourself' });
+    if (!client) return sendError(res, 404, ErrorCodes.NOT_FOUND, 'User not found');
+    if (client.id === coachId) return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, 'Cannot invite yourself');
 
     const existing = await db
       .select()
@@ -69,8 +73,8 @@ router.post('/coaches/invite', verifyJWT, async (req: any, res: any) => {
 
     if (existing.length > 0) {
       const st = existing[0].status;
-      if (st === 'active') return res.status(400).json({ error: 'Already connected with this client' });
-      return res.status(400).json({ error: 'Invitation already sent' });
+      if (st === 'active') return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, 'Already connected with this client');
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, 'Invitation already sent');
     }
 
     const newRecord = await db
@@ -81,7 +85,7 @@ router.post('/coaches/invite', verifyJWT, async (req: any, res: any) => {
     res.status(201).json({ message: 'Invitation sent successfully', success: true, newCoachClient: newRecord[0] });
   } catch (error) {
     console.error('❌ [coaches] Error sending invitation:', error);
-    res.status(500).json({ error: 'Failed to send invitation' });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, 'Failed to send invitation');
   }
 });
 
@@ -89,7 +93,7 @@ router.post('/coaches/invite', verifyJWT, async (req: any, res: any) => {
 router.get('/coaches/clients', verifyJWT, async (req: any, res: any) => {
   try {
     const coachId = req.user?.claims?.sub || req.user?.id;
-    if (!coachId) return res.status(401).json({ error: 'Unauthorized' });
+    if (!coachId) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, 'Unauthorized');
 
     const result = await pool.query(
       `SELECT
@@ -116,7 +120,7 @@ router.get('/coaches/clients', verifyJWT, async (req: any, res: any) => {
     res.json(result.rows);
   } catch (error: any) {
     console.error('❌ [coaches] Error fetching clients:', error);
-    res.status(500).json({ error: 'Failed to fetch clients', message: error?.message });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, 'Failed to fetch clients');
   }
 });
 
@@ -125,7 +129,7 @@ router.get('/coaches/clients/:clientId', verifyJWT, async (req: any, res: any) =
   try {
     const { clientId } = req.params;
     const coachId = req.user?.claims?.sub || req.user?.id;
-    if (!coachId) return res.status(401).json({ error: 'Not authenticated' });
+    if (!coachId) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, 'Not authenticated');
 
     const relationship = await db
       .select()
@@ -133,14 +137,14 @@ router.get('/coaches/clients/:clientId', verifyJWT, async (req: any, res: any) =
       .where(and(eq(coachClients.coachId, coachId), eq(coachClients.clientId, clientId)))
       .limit(1);
 
-    if (relationship.length === 0) return res.status(403).json({ error: 'Not authorized' });
+    if (relationship.length === 0) return sendError(res, 403, ErrorCodes.FORBIDDEN, 'Not authorized');
 
     const clientResult = await db.select().from(users).where(eq(users.id, clientId)).limit(1);
 
     res.json({ ...relationship[0], client: clientResult[0] });
   } catch (error) {
     console.error('❌ [coaches] Error fetching client:', error);
-    res.status(500).json({ error: 'Failed to fetch client' });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, 'Failed to fetch client');
   }
 });
 
@@ -149,20 +153,20 @@ router.post('/coaches/remove-client', verifyJWT, async (req: any, res: any) => {
   try {
     const { clientId } = req.body;
     const coachId = req.user?.claims?.sub || req.user?.id;
-    if (!coachId) return res.status(401).json({ error: 'Not authenticated' });
-    if (!clientId) return res.status(400).json({ error: 'Client ID required' });
+    if (!coachId) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, 'Not authenticated');
+    if (!clientId) return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, 'Client ID required');
 
     const result = await db
       .delete(coachClients)
       .where(and(eq(coachClients.coachId, coachId), eq(coachClients.clientId, clientId)))
       .returning();
 
-    if (result.length === 0) return res.status(404).json({ error: 'Client relationship not found' });
+    if (result.length === 0) return sendError(res, 404, ErrorCodes.NOT_FOUND, 'Client relationship not found');
 
     res.json({ success: true, message: 'Client removed' });
   } catch (error) {
     console.error('❌ [coaches] Error removing client:', error);
-    res.status(500).json({ error: 'Failed to remove client' });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, 'Failed to remove client');
   }
 });
 
@@ -171,19 +175,19 @@ router.delete('/coaches/clients/:clientId', verifyJWT, async (req: any, res: any
   try {
     const { clientId } = req.params;
     const coachId = req.user?.claims?.sub || req.user?.id;
-    if (!coachId) return res.status(401).json({ error: 'Not authenticated' });
+    if (!coachId) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, 'Not authenticated');
 
     const result = await db
       .delete(coachClients)
       .where(and(eq(coachClients.coachId, coachId), eq(coachClients.clientId, clientId)))
       .returning();
 
-    if (result.length === 0) return res.status(404).json({ error: 'Client relationship not found' });
+    if (result.length === 0) return sendError(res, 404, ErrorCodes.NOT_FOUND, 'Client relationship not found');
 
     res.json({ success: true, message: 'Client removed successfully' });
   } catch (error) {
     console.error('❌ [coaches] Error removing client:', error);
-    res.status(500).json({ error: 'Failed to remove client' });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, 'Failed to remove client');
   }
 });
 
@@ -193,11 +197,11 @@ router.put('/coaches/clients/:clientId', verifyJWT, async (req: any, res: any) =
     const { clientId } = req.params;
     const { status, notes } = req.body;
     const coachId = req.user?.claims?.sub || req.user?.id;
-    if (!coachId) return res.status(401).json({ error: 'Not authenticated' });
+    if (!coachId) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, 'Not authenticated');
 
     const validStatuses = ['active', 'paused', 'completed'];
     if (status && !validStatuses.includes(status.toLowerCase())) {
-      return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, `Invalid status. Must be one of: ${validStatuses.join(', ')}`);
     }
 
     const updateData: any = {};
@@ -210,12 +214,12 @@ router.put('/coaches/clients/:clientId', verifyJWT, async (req: any, res: any) =
       .where(and(eq(coachClients.coachId, coachId), eq(coachClients.clientId, clientId)))
       .returning();
 
-    if (result.length === 0) return res.status(404).json({ error: 'Relationship not found' });
+    if (result.length === 0) return sendError(res, 404, ErrorCodes.NOT_FOUND, 'Relationship not found');
 
     res.json({ success: true, result: result[0] });
   } catch (error) {
     console.error('❌ [coaches] Error updating client status:', error);
-    res.status(500).json({ error: 'Failed to update client' });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, 'Failed to update client');
   }
 });
 

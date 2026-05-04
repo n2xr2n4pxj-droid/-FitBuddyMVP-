@@ -13,6 +13,8 @@ import { verifyJWT } from '../replitAuth';
 import { getUserById } from '../db/queries';
 import { assertCanAccessTargetUser } from '../lib/coachAccess';
 import { getDayNutritionPayload, hktDayBoundsUtc } from '../services/nutritionDay';
+import { sendError } from '../lib/response';
+import { ErrorCodes } from '@shared/error-codes';
 
 const router = Router();
 
@@ -25,15 +27,15 @@ router.get('/coach/clients', verifyJWT, async (req: any, res: any) => {
   try {
     const currentId = req.user?.id ?? req.user?.claims?.sub;
     if (!currentId) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, 'Unauthorized');
     }
     const currentUser = await getUserById(currentId);
     if (!currentUser) {
-      return res.status(401).json({ error: 'User not found' });
+      return sendError(res, 401, ErrorCodes.AUTH_USER_NOT_FOUND, 'User not found');
     }
     const role = String(currentUser.role ?? '').toUpperCase();
     if (role !== 'COACH' && role !== 'ADMIN') {
-      return res.status(403).json({ error: 'Only coach can list clients' });
+      return sendError(res, 403, ErrorCodes.FORBIDDEN, 'Only coach can list clients');
     }
 
     const rows = await db
@@ -56,7 +58,7 @@ router.get('/coach/clients', verifyJWT, async (req: any, res: any) => {
     return res.status(200).json(rows);
   } catch (error: any) {
     console.error('❌ [API] GET /coach/clients Error:', error);
-    return res.status(500).json({ error: error?.message ?? 'Failed to fetch clients' });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, 'Failed to fetch clients');
   }
 });
 
@@ -69,15 +71,15 @@ router.get('/coach-client/my-learners', verifyJWT, async (req: any, res: any) =>
   try {
     const currentId = req.user?.id ?? req.user?.claims?.sub;
     if (!currentId) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, 'Unauthorized');
     }
     const currentUser = await getUserById(currentId);
     if (!currentUser) {
-      return res.status(401).json({ error: 'User not found' });
+      return sendError(res, 401, ErrorCodes.AUTH_USER_NOT_FOUND, 'User not found');
     }
     const role = String(currentUser.role ?? '').toUpperCase();
     if (role !== 'COACH' && role !== 'ADMIN') {
-      return res.status(403).json({ error: 'Only trainer can list learners' });
+      return sendError(res, 403, ErrorCodes.FORBIDDEN, 'Only trainer can list learners');
     }
 
     const rows = await db
@@ -109,7 +111,7 @@ router.get('/coach-client/my-learners', verifyJWT, async (req: any, res: any) =>
     return res.status(200).json(learners);
   } catch (error: any) {
     console.error('❌ [API] GET /coach-client/my-learners Error:', error);
-    return res.status(500).json({ error: error?.message ?? 'Failed to fetch learners' });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, 'Failed to fetch learners');
   }
 });
 
@@ -122,11 +124,11 @@ router.get('/client/coaches', verifyJWT, async (req: any, res: any) => {
   try {
     const currentId = req.user?.id ?? req.user?.claims?.sub;
     if (!currentId) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, 'Unauthorized');
     }
     const currentUser = await getUserById(currentId);
     if (!currentUser) {
-      return res.status(401).json({ error: 'User not found' });
+      return sendError(res, 401, ErrorCodes.AUTH_USER_NOT_FOUND, 'User not found');
     }
 
     const rows = await db
@@ -149,7 +151,7 @@ router.get('/client/coaches', verifyJWT, async (req: any, res: any) => {
     return res.status(200).json(rows);
   } catch (error: any) {
     console.error('❌ [API] GET /client/coaches Error:', error);
-    return res.status(500).json({ error: error?.message ?? 'Failed to fetch coaches' });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, 'Failed to fetch coaches');
   }
 });
 
@@ -162,11 +164,11 @@ router.get('/coach-client/my-coach', verifyJWT, async (req: any, res: any) => {
   try {
     const currentId = req.user?.id ?? req.user?.claims?.sub;
     if (!currentId) {
-      return res.status(401).json({ error: 'Unauthorized' });
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, 'Unauthorized');
     }
     const currentUser = await getUserById(currentId);
     if (!currentUser) {
-      return res.status(401).json({ error: 'User not found' });
+      return sendError(res, 401, ErrorCodes.AUTH_USER_NOT_FOUND, 'User not found');
     }
 
     const rows = await db
@@ -195,7 +197,7 @@ router.get('/coach-client/my-coach', verifyJWT, async (req: any, res: any) => {
     });
   } catch (error: any) {
     console.error('❌ [API] GET /coach-client/my-coach Error:', error);
-    return res.status(500).json({ error: error?.message ?? 'Failed to fetch assigned coach' });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, 'Failed to fetch assigned coach');
   }
 });
 
@@ -206,31 +208,31 @@ router.get('/coach-client/my-coach', verifyJWT, async (req: any, res: any) => {
 router.get('/coach/clients/:clientId/nutrition/logs', verifyJWT, async (req: any, res: any) => {
   try {
     const actorId = String(req.user?.id ?? req.user?.claims?.sub ?? '').trim();
-    if (!actorId) return res.status(401).json({ error: 'Unauthorized' });
+    if (!actorId) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, 'Unauthorized');
     const actor = await getUserById(actorId);
-    if (!actor) return res.status(401).json({ error: 'Unauthorized' });
+    if (!actor) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, 'Unauthorized');
 
     const clientId = String(req.params?.clientId ?? '').trim();
-    if (!clientId) return res.status(400).json({ error: 'Missing clientId' });
+    if (!clientId) return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, 'Missing clientId');
 
     const ok = await assertCanAccessTargetUser(actorId, actor.role, clientId);
-    if (!ok) return res.status(403).json({ error: 'Forbidden' });
+    if (!ok) return sendError(res, 403, ErrorCodes.FORBIDDEN, 'Forbidden');
 
     const dateYmd = String(req.query?.date ?? '').trim();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(dateYmd)) {
-      return res.status(400).json({ error: 'Invalid or missing date (YYYY-MM-DD)' });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, 'Invalid or missing date (YYYY-MM-DD)');
     }
     try {
       hktDayBoundsUtc(dateYmd);
     } catch {
-      return res.status(400).json({ error: 'Invalid date' });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, 'Invalid date');
     }
 
     const payload = await getDayNutritionPayload(clientId, dateYmd);
     return res.status(200).json(payload);
   } catch (error: any) {
     console.error('❌ [API] GET /coach/clients/:clientId/nutrition/logs Error:', error);
-    return res.status(500).json({ error: error?.message ?? 'Failed to fetch client nutrition' });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, 'Failed to fetch client nutrition');
   }
 });
 
