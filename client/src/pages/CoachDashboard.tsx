@@ -11,7 +11,7 @@ import { InvitationList } from '@/components/InvitationList';
 import { InvitationCard } from '@/components/InvitationCard';
 import { InvitationStats } from '@/components/InvitationStats';
 import { InvitationTemplateManager } from '@/components/InvitationTemplateManager';
-import { request } from '@/lib/api-client';
+import { request, normalizeApiError } from '@/lib/api-client';
 
 interface Client {
   id: string;
@@ -71,10 +71,11 @@ export default function CoachDashboard() {
 
       refetch();
     } catch (err) {
+      const normalized = normalizeApiError(err);
       console.error('❌ [CoachDashboard] handleRemoveClient 錯誤:', err);
       toast({
         title: '錯誤',
-        description: err instanceof Error ? err.message : '移除客戶失敗',
+        description: normalized.message || '移除客戶失敗',
         variant: 'destructive',
       });
     }

@@ -14,7 +14,7 @@ import { MealForm } from "@/components/meal-form";
 import { WeeklyChart } from "@/components/weekly-chart";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { queryClient, createQueryFn } from "@/lib/queryClient";
-import { request } from "@/lib/api-client";
+import { request, normalizeApiError } from "@/lib/api-client";
 import { useLocation } from "wouter";
 import { useTodayProgress, useTDEEProfile } from "@/hooks/use-tdee";
 
@@ -252,11 +252,12 @@ export default function Dashboard() {
         title: "Success",
         description: editingWorkoutId ? 'Workout updated successfully' : 'Workout logged successfully',
       });
-    } catch (error: any) {
-      console.error('Error saving workout:', error);
+    } catch (err) {
+      const normalized = normalizeApiError(err);
+      console.error('Error saving workout:', err);
       toast({
         title: "Error",
-        description: error.message || 'Failed to save workout',
+        description: normalized.message || 'Failed to save workout',
         variant: "destructive",
       });
     }
@@ -278,11 +279,12 @@ export default function Dashboard() {
         title: "成功",
         description: '訓練記錄已刪除',
       });
-    } catch (error: any) {
-      console.error('Error deleting workout:', error);
+    } catch (err) {
+      const normalized = normalizeApiError(err);
+      console.error('Error deleting workout:', err);
       toast({
         title: "錯誤",
-        description: error.message || 'Failed to delete workout',
+        description: normalized.message || 'Failed to delete workout',
         variant: "destructive",
       });
     }

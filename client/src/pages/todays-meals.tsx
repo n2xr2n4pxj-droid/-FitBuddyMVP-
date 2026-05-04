@@ -9,7 +9,7 @@ import { WeeklyChart } from "@/components/weekly-chart";
 import { WorkoutList } from "@/components/workout-list";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { createQueryFn, apiRequest } from "@/lib/queryClient";
-import { request } from "@/lib/api-client";
+import { request, normalizeApiError } from "@/lib/api-client";
 
 export default function TodaysMeals() {
   const { user, isAuthenticated } = useAuth();
@@ -50,9 +50,10 @@ export default function TodaysMeals() {
       // 強制重新獲取今天的餐點
       queryClient.refetchQueries({ queryKey: ["/api/meals", today] });
     },
-    onError: (error: any) => {
+    onError: (error: unknown) => {
+      const normalized = normalizeApiError(error);
       console.error('❌ [Frontend] Error:', error);
-      alert(error.message || 'Failed to create meal');
+      alert(normalized.message || 'Failed to create meal');
     }
   });
 
@@ -113,9 +114,10 @@ export default function TodaysMeals() {
       queryClient.invalidateQueries({ queryKey: ["/api/meals"] });
       queryClient.invalidateQueries({ queryKey: ["/api/summary/daily"] });
     },
-    onError: (error) => {
+    onError: (error: unknown) => {
+      const normalized = normalizeApiError(error);
       console.error("[TodaysMeals] Delete error:", error);
-      alert(`刪除失敗：${error.message}`);
+      alert(`刪除失敗：${normalized.message}`);
     },
   });
 

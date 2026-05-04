@@ -4,7 +4,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { request } from '@/lib/api-client';
+import { request, normalizeApiError } from '@/lib/api-client';
 import {
   Dialog,
   DialogContent,
@@ -78,9 +78,10 @@ export default function ClientList({ clients, onClientSelect, onRefresh }: Clien
       setAddClientOpen(false);
       onRefresh();
     } catch (err) {
+      const normalized = normalizeApiError(err);
       toast({
         title: '添加失敗',
-        description: err instanceof Error ? err.message : 'Failed to add client',
+        description: normalized.message || 'Failed to add client',
         variant: 'destructive',
       });
     } finally {
@@ -103,9 +104,10 @@ export default function ClientList({ clients, onClientSelect, onRefresh }: Clien
 
       onRefresh();
     } catch (err) {
+      const normalized = normalizeApiError(err);
       toast({
         title: '移除失敗',
-        description: err instanceof Error ? err.message : 'Failed to remove client',
+        description: normalized.message || 'Failed to remove client',
         variant: 'destructive',
       });
     }

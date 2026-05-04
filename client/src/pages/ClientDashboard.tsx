@@ -5,7 +5,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { request } from '@/lib/api-client';
+import { request, normalizeApiError } from '@/lib/api-client';
 
 interface WorkoutPlan {
   id: string;
@@ -42,7 +42,8 @@ export default function ClientDashboard() {
       const data = await request.get<WorkoutPlan[]>(`/api/workout-plans/client/${user.id}`);
       setPlans(data);
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to fetch plans';
+      const normalized = normalizeApiError(err);
+      const errorMessage = normalized.message || 'Failed to fetch plans';
       setError(errorMessage);
       toast({
         title: '載入失敗',

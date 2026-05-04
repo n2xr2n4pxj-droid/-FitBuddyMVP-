@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { request } from '@/lib/api-client';
+import { request, normalizeApiError } from '@/lib/api-client';
 import {
   Select,
   SelectContent,
@@ -75,9 +75,10 @@ export default function WorkoutPlanEditor({
         email: c.email,
       })));
     } catch (err) {
+      const normalized = normalizeApiError(err);
       toast({
         title: '載入失敗',
-        description: err instanceof Error ? err.message : 'Failed to fetch clients',
+        description: normalized.message || 'Failed to fetch clients',
         variant: 'destructive',
       });
     } finally {
@@ -161,9 +162,10 @@ export default function WorkoutPlanEditor({
       setNotes('');
       onRefresh();
     } catch (err) {
+      const normalized = normalizeApiError(err);
       toast({
         title: '創建失敗',
-        description: err instanceof Error ? err.message : 'Failed to create workout plan',
+        description: normalized.message || 'Failed to create workout plan',
         variant: 'destructive',
       });
     } finally {

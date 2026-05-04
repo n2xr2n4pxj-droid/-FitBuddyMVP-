@@ -6,6 +6,7 @@ import { insertMealSchema, type InsertMeal } from "@shared/schema";
 import type { Meal } from "@shared/schema";
 import { useUpdateMeal } from "@/hooks/use-meals";
 import { useToast } from "@/hooks/use-toast";
+import { normalizeApiError } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -178,11 +179,12 @@ export default function EditMealModal({
       });
 
       onClose();
-    } catch (error: any) {
-      console.error("Failed to update meal:", error);
+    } catch (err) {
+      const normalized = normalizeApiError(err);
+      console.error("Failed to update meal:", err);
       toast({
         title: "Error",
-        description: error.message || "Failed to update meal. Please try again.",
+        description: normalized.message || "Failed to update meal. Please try again.",
         variant: "destructive",
       });
     }

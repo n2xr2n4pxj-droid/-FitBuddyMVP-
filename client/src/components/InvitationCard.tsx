@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { isExpired, isExpiringSoon, getDaysSinceExpiry, getDaysUntilExpiry } from '@/utils/dateUtils';
+import { normalizeApiError } from '@/lib/api-client';
 
 const STATUS_CONFIG = {
   PENDING: { 
@@ -74,10 +75,11 @@ export const InvitationCard: React.FC<InvitationCardProps> = ({
           title: '成功',
           description: '邀請已撤銷',
         });
-      } catch (error) {
+      } catch (err) {
+        const normalized = normalizeApiError(err);
         toast({
           title: '錯誤',
-          description: error instanceof Error ? error.message : '撤銷失敗',
+          description: normalized.message || '撤銷失敗',
           variant: 'destructive',
         });
       }
@@ -94,10 +96,11 @@ export const InvitationCard: React.FC<InvitationCardProps> = ({
           title: '成功',
           description: '邀請已重新發送',
         });
-      } catch (error) {
+      } catch (err) {
+        const normalized = normalizeApiError(err);
         toast({
           title: '錯誤',
-          description: error instanceof Error ? error.message : '重新發送失敗',
+          description: normalized.message || '重新發送失敗',
           variant: 'destructive',
         });
       }
