@@ -12,6 +12,8 @@ import { verifyJWT } from "../replitAuth";
 import { getUserById } from "../db/queries";
 import { loadPlanExercisesJson } from "../services/planDetail";
 import { notifyPlanAssigned } from "../services/notificationService";
+import { sendError } from "../lib/response";
+import { ErrorCodes } from "@shared/error-codes";
 
 const router = Router();
 
@@ -59,12 +61,12 @@ async function getExerciseCountByRoutineIds(routineIds: string[]) {
 router.get("/plans/my", verifyJWT, async (req: any, res: any) => {
   try {
     const userId = getCurrentUserId(req);
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    if (!userId) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
 
     const currentUser = await getUserById(userId);
-    if (!currentUser) return res.status(401).json({ error: "Unauthorized" });
+    if (!currentUser) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
     if (isTrainerRole(currentUser.role)) {
-      return res.status(403).json({ error: "Only learners can access /api/plans/my" });
+      return sendError(res, 403, ErrorCodes.FORBIDDEN, "Only learners can access /api/plans/my");
     }
 
     const learnerId = userId;
@@ -177,7 +179,7 @@ router.get("/plans/my", verifyJWT, async (req: any, res: any) => {
     return res.json([...assignedSummariesFinal, ...selfBuiltFinal]);
   } catch (err: any) {
     console.error("[API] GET /plans/my Error:", err);
-    return res.status(500).json({ error: "Failed to fetch plans" });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to fetch plans");
   }
 });
 
@@ -185,13 +187,13 @@ router.get("/plans/my", verifyJWT, async (req: any, res: any) => {
 router.get("/plans/:routineId([0-9a-fA-F-]{36})", verifyJWT, async (req: any, res: any) => {
   try {
     const userId = getCurrentUserId(req);
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    if (!userId) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
 
     const routineId = String(req.params.routineId ?? "").trim();
-    if (!routineId) return res.status(400).json({ error: "routineId is required" });
+    if (!routineId) return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "routineId is required");
 
     const currentUser = await getUserById(userId);
-    if (!currentUser) return res.status(401).json({ error: "Unauthorized" });
+    if (!currentUser) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
 
     const routine = await db
       .select({
@@ -206,9 +208,9 @@ router.get("/plans/:routineId([0-9a-fA-F-]{36})", verifyJWT, async (req: any, re
       .where(eq(workoutRoutines.id, routineId))
       .limit(1);
 
-    if (!routine[0]) return res.status(404).json({ error: "Plan not found" });
+    if (!routine[0]) return sendError(res, 404, ErrorCodes.PLAN_NOT_FOUND, "Plan not found");
     const r = routine[0];
-    if (r.deletedAt != null) return res.status(404).json({ error: "Plan not found" });
+    if (r.deletedAt != null) return sendError(res, 404, ErrorCodes.PLAN_NOT_FOUND, "Plan not found");
 
     let isOwn = false;
     let assignedBy: string | undefined;
@@ -226,7 +228,7 @@ router.get("/plans/:routineId([0-9a-fA-F-]{36})", verifyJWT, async (req: any, re
         .limit(1);
 
       const canView = r.coachId === userId || assignmentExists.length > 0;
-      if (!canView) return res.status(403).json({ error: "Not authorized" });
+      if (!canView) return sendError(res, 403, ErrorCodes.FORBIDDEN, "Not authorized");
       isOwn = r.coachId === userId;
     } else {
       // LEARNER：允許查看擁有（clientId 相符）或被指派（planAssignments.learnerId 相符）
@@ -243,7 +245,7 @@ router.get("/plans/:routineId([0-9a-fA-F-]{36})", verifyJWT, async (req: any, re
           .where(and(eq(planAssignments.routineId, routineId), eq(planAssignments.learnerId, userId)))
           .limit(1);
 
-        if (!assignment[0]) return res.status(403).json({ error: "Not authorized" });
+        if (!assignment[0]) return sendError(res, 403, ErrorCodes.FORBIDDEN, "Not authorized");
         assignedBy = assignment[0].trainerId;
         assignedAt = assignment[0].assignedAt ? new Date(assignment[0].assignedAt).toISOString() : undefined;
         note = assignment[0].note;
@@ -282,18 +284,18 @@ router.get("/plans/:routineId([0-9a-fA-F-]{36})", verifyJWT, async (req: any, re
     });
   } catch (err: any) {
     console.error("[API] GET /plans/:routineId Error:", err);
-    return res.status(500).json({ error: "Failed to fetch plan detail" });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to fetch plan detail");
   }
 });
 
 router.get("/plans/available", verifyJWT, async (req: any, res: any) => {
   try {
     const userId = getCurrentUserId(req);
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    if (!userId) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
 
     const currentUser = await getUserById(userId);
-    if (!currentUser) return res.status(401).json({ error: "Unauthorized" });
-    if (!isTrainerRole(currentUser.role)) return res.status(403).json({ error: "Only trainer can access" });
+    if (!currentUser) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
+    if (!isTrainerRole(currentUser.role)) return sendError(res, 403, ErrorCodes.FORBIDDEN, "Only trainer can access");
 
     const routines = await db
       .select({
@@ -340,7 +342,7 @@ router.get("/plans/available", verifyJWT, async (req: any, res: any) => {
     );
   } catch (err: any) {
     console.error("[API] GET /plans/available Error:", err);
-    return res.status(500).json({ error: "Failed to fetch available plans" });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to fetch available plans");
   }
 });
 
@@ -351,17 +353,17 @@ router.get(
   async (req: any, res: any) => {
     try {
       const trainerId = getCurrentUserId(req);
-      if (!trainerId) return res.status(401).json({ error: "Unauthorized" });
+      if (!trainerId) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
 
       const learnerId = String(req.params.learnerId ?? "").trim();
-      if (!learnerId) return res.status(400).json({ error: "learnerId is required" });
+      if (!learnerId) return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "learnerId is required");
 
       const currentUser = await getUserById(trainerId);
-      if (!currentUser) return res.status(401).json({ error: "Unauthorized" });
-      if (!isTrainerRole(currentUser.role)) return res.status(403).json({ error: "Only trainer can access" });
+      if (!currentUser) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
+      if (!isTrainerRole(currentUser.role)) return sendError(res, 403, ErrorCodes.FORBIDDEN, "Only trainer can access");
 
       const isActiveTrainer = await assertActiveTrainerForLearner(trainerId, learnerId);
-      if (!isActiveTrainer) return res.status(403).json({ error: "Not authorized" });
+      if (!isActiveTrainer) return sendError(res, 403, ErrorCodes.FORBIDDEN, "Not authorized");
 
       const rows = await db
         .select({
@@ -387,7 +389,7 @@ router.get(
       return res.json({ routineIds: rawIds.filter((id) => allowed.has(id)) });
     } catch (err: any) {
       console.error("[API] GET /plans/assignments/:learnerId Error:", err);
-      return res.status(500).json({ error: "Failed to fetch assignments" });
+      return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to fetch assignments");
     }
   },
 );
@@ -395,26 +397,26 @@ router.get(
 router.post("/plans/assign", verifyJWT, async (req: any, res: any) => {
   try {
     const trainerId = getCurrentUserId(req);
-    if (!trainerId) return res.status(401).json({ error: "Unauthorized" });
+    if (!trainerId) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
 
     const { routineId, learnerId, note } = req.body ?? {};
     const routineIdStr = typeof routineId === "string" ? routineId.trim() : "";
     const learnerIdStr = typeof learnerId === "string" ? learnerId.trim() : "";
 
-    if (!routineIdStr) return res.status(400).json({ error: "routineId is required" });
-    if (!learnerIdStr) return res.status(400).json({ error: "learnerId is required" });
+    if (!routineIdStr) return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "routineId is required");
+    if (!learnerIdStr) return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "learnerId is required");
 
     const currentUser = await getUserById(trainerId);
-    if (!currentUser) return res.status(401).json({ error: "Unauthorized" });
-    if (!isTrainerRole(currentUser.role)) return res.status(403).json({ error: "Only trainer can assign" });
+    if (!currentUser) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
+    if (!isTrainerRole(currentUser.role)) return sendError(res, 403, ErrorCodes.FORBIDDEN, "Only trainer can assign");
 
     if (note != null && note !== "") {
-      if (typeof note !== "string") return res.status(400).json({ error: "note must be a string" });
-      if (note.trim().length > 500) return res.status(400).json({ error: "note is too long (max 500)" });
+      if (typeof note !== "string") return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "note must be a string");
+      if (note.trim().length > 500) return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "note is too long (max 500)");
     }
 
     const isActiveTrainer = await assertActiveTrainerForLearner(trainerId, learnerIdStr);
-    if (!isActiveTrainer) return res.status(403).json({ error: "Not authorized" });
+    if (!isActiveTrainer) return sendError(res, 403, ErrorCodes.FORBIDDEN, "Not authorized");
 
     const routineRows = await db
       .select({
@@ -425,11 +427,11 @@ router.post("/plans/assign", verifyJWT, async (req: any, res: any) => {
       .from(workoutRoutines)
       .where(eq(workoutRoutines.id, routineIdStr))
       .limit(1);
-    if (!routineRows[0]) return res.status(404).json({ error: "Routine not found" });
+    if (!routineRows[0]) return sendError(res, 404, ErrorCodes.NOT_FOUND, "Routine not found");
     if (routineRows[0].deletedAt != null) {
-      return res.status(400).json({ error: "Routine has been deleted" });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "Routine has been deleted");
     }
-    if (String(routineRows[0].coachId) !== trainerId) return res.status(403).json({ error: "Not authorized" });
+    if (String(routineRows[0].coachId) !== trainerId) return sendError(res, 403, ErrorCodes.FORBIDDEN, "Not authorized");
 
     const assignmentAt = new Date();
     const noteValue = typeof note === "string" ? note.trim() : null;
@@ -470,27 +472,27 @@ router.post("/plans/assign", verifyJWT, async (req: any, res: any) => {
     return res.json({ success: true });
   } catch (err: any) {
     console.error("[API] POST /plans/assign Error:", err);
-    return res.status(500).json({ error: "Failed to assign plan" });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to assign plan");
   }
 });
 
 router.delete("/plans/assign/:learnerId/:routineId", verifyJWT, async (req: any, res: any) => {
   try {
     const trainerId = getCurrentUserId(req);
-    if (!trainerId) return res.status(401).json({ error: "Unauthorized" });
+    if (!trainerId) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
 
     const learnerId = String(req.params.learnerId ?? "").trim();
     const routineId = String(req.params.routineId ?? "").trim();
 
-    if (!learnerId) return res.status(400).json({ error: "learnerId is required" });
-    if (!routineId) return res.status(400).json({ error: "routineId is required" });
+    if (!learnerId) return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "learnerId is required");
+    if (!routineId) return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "routineId is required");
 
     const currentUser = await getUserById(trainerId);
-    if (!currentUser) return res.status(401).json({ error: "Unauthorized" });
-    if (!isTrainerRole(currentUser.role)) return res.status(403).json({ error: "Only trainer can unassign" });
+    if (!currentUser) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
+    if (!isTrainerRole(currentUser.role)) return sendError(res, 403, ErrorCodes.FORBIDDEN, "Only trainer can unassign");
 
     const isActiveTrainer = await assertActiveTrainerForLearner(trainerId, learnerId);
-    if (!isActiveTrainer) return res.status(403).json({ error: "Not authorized" });
+    if (!isActiveTrainer) return sendError(res, 403, ErrorCodes.FORBIDDEN, "Not authorized");
 
     const routineRows = await db
       .select({ id: workoutRoutines.id, coachId: workoutRoutines.coachId })
@@ -498,8 +500,8 @@ router.delete("/plans/assign/:learnerId/:routineId", verifyJWT, async (req: any,
       .where(eq(workoutRoutines.id, routineId))
       .limit(1);
 
-    if (!routineRows[0]) return res.status(404).json({ error: "Routine not found" });
-    if (String(routineRows[0].coachId) !== trainerId) return res.status(403).json({ error: "Not authorized" });
+    if (!routineRows[0]) return sendError(res, 404, ErrorCodes.NOT_FOUND, "Routine not found");
+    if (String(routineRows[0].coachId) !== trainerId) return sendError(res, 403, ErrorCodes.FORBIDDEN, "Not authorized");
 
     await db
       .delete(planAssignments)
@@ -514,7 +516,7 @@ router.delete("/plans/assign/:learnerId/:routineId", verifyJWT, async (req: any,
     return res.json({ success: true });
   } catch (err: any) {
     console.error("[API] DELETE /plans/assign/:learnerId/:routineId Error:", err);
-    return res.status(500).json({ error: "Failed to unassign plan" });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to unassign plan");
   }
 });
 

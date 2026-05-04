@@ -9,6 +9,8 @@ import {
   mealTypeToDb,
   serializeMealRow,
 } from "../services/nutritionDay";
+import { sendError } from "../lib/response";
+import { ErrorCodes } from "@shared/error-codes";
 
 const router = Router();
 
@@ -33,18 +35,18 @@ function parseDateParam(raw: unknown): string | null {
 router.get("/logs/my", verifyJWT, async (req: any, res: any) => {
   try {
     const userId = getCurrentUserId(req);
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    if (!userId) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
 
     const dateYmd = parseDateParam(req.query?.date);
     if (!dateYmd) {
-      return res.status(400).json({ error: "Invalid or missing date (YYYY-MM-DD)" });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "Invalid or missing date (YYYY-MM-DD)");
     }
 
     const payload = await getDayNutritionPayload(userId, dateYmd);
     return res.status(200).json(payload);
   } catch (error: any) {
     console.error("[GET /nutrition/logs/my]", error);
-    return res.status(500).json({ error: error?.message ?? "Failed to fetch nutrition logs" });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to fetch nutrition logs");
   }
 });
 
@@ -52,17 +54,17 @@ router.get("/logs/my", verifyJWT, async (req: any, res: any) => {
 router.post("/logs", verifyJWT, async (req: any, res: any) => {
   try {
     const userId = getCurrentUserId(req);
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    if (!userId) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
 
     const body = req.body ?? {};
     const logDate = parseDateParam(body.logDate);
     if (!logDate) {
-      return res.status(400).json({ error: "Invalid or missing logDate (YYYY-MM-DD)" });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "Invalid or missing logDate (YYYY-MM-DD)");
     }
 
     const nameRaw = String(body.description ?? body.name ?? "").trim();
     if (!nameRaw) {
-      return res.status(400).json({ error: "description (food name) is required" });
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "description (food name) is required");
     }
 
     const mt = mealTypeToDb(String(body.mealType ?? "snack"));
@@ -75,7 +77,7 @@ router.post("/logs", verifyJWT, async (req: any, res: any) => {
     if (body.consumedAt) {
       consumedAt = new Date(body.consumedAt);
       if (Number.isNaN(consumedAt.getTime())) {
-        return res.status(400).json({ error: "Invalid consumedAt" });
+        return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "Invalid consumedAt");
       }
     } else {
       consumedAt = new Date(`${logDate}T12:00:00+08:00`);
@@ -97,13 +99,13 @@ router.post("/logs", verifyJWT, async (req: any, res: any) => {
       })
       .returning();
 
-    if (!row) return res.status(500).json({ error: "Failed to create meal" });
+    if (!row) return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to create meal");
 
     const serialized = serializeMealRow(row);
     return res.status(201).json(serialized);
   } catch (error: any) {
     console.error("[POST /nutrition/logs]", error);
-    return res.status(500).json({ error: error?.message ?? "Failed to log meal" });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to log meal");
   }
 });
 
@@ -111,10 +113,10 @@ router.post("/logs", verifyJWT, async (req: any, res: any) => {
 router.delete("/logs/:id", verifyJWT, async (req: any, res: any) => {
   try {
     const userId = getCurrentUserId(req);
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    if (!userId) return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Unauthorized");
 
     const id = String(req.params?.id ?? "").trim();
-    if (!id) return res.status(400).json({ error: "Missing id" });
+    if (!id) return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "Missing id");
 
     const [existing] = await db
       .select({ id: meals.id, userId: meals.userId })
@@ -122,14 +124,14 @@ router.delete("/logs/:id", verifyJWT, async (req: any, res: any) => {
       .where(eq(meals.id, id))
       .limit(1);
 
-    if (!existing) return res.status(404).json({ error: "Not found" });
-    if (existing.userId !== userId) return res.status(403).json({ error: "Forbidden" });
+    if (!existing) return sendError(res, 404, ErrorCodes.NOT_FOUND, "Not found");
+    if (existing.userId !== userId) return sendError(res, 403, ErrorCodes.FORBIDDEN, "Forbidden");
 
     await db.delete(meals).where(and(eq(meals.id, id), eq(meals.userId, userId)));
     return res.status(204).send();
   } catch (error: any) {
     console.error("[DELETE /nutrition/logs/:id]", error);
-    return res.status(500).json({ error: error?.message ?? "Failed to delete meal" });
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to delete meal");
   }
 });
 
