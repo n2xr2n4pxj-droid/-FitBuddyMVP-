@@ -1,8 +1,8 @@
 import { useState, useCallback, useEffect } from 'react';
 import { Invitation, InvitationStats } from '@/types/invitations';
 import { invitationService } from '@/services/invitationService';
-import { normalizeApiError, createAppApiError } from '@/lib/api-client';
-import type { AppApiError } from '@/lib/api-error';
+import { normalizeApiError } from '@/lib/api-client';
+import { createAppApiError, type AppApiError } from '@/lib/api-error';
 
 export const useInvitations = () => {
   const [invitations, setInvitations] = useState<Invitation[]>([]);
@@ -55,22 +55,8 @@ export const useInvitations = () => {
     ) => {
       try {
         setError(null);
-        const result = await invitationService.sendInvitation(
-          email,
-          clientName,
-          message
-        );
-        
-        if (result.success) {
-          await refreshInvitations(); // 重新載入列表
-        } else {
-          const errorObj = createAppApiError({
-            message: result.error || result.message || '操作失敗',
-          });
-          setError(errorObj);
-          throw errorObj;
-        }
-        
+        const result = await invitationService.sendInvitation(email, clientName, message);
+        await refreshInvitations(); // 重新載入列表
         return result;
       } catch (err) {
         const normalized = normalizeApiError(err);
@@ -87,17 +73,7 @@ export const useInvitations = () => {
       try {
         setError(null);
         const result = await invitationService.revokeInvitation(invitationId);
-        
-        if (result.success) {
-          await refreshInvitations(); // 重新載入列表
-        } else {
-          const errorObj = createAppApiError({
-            message: result.error || result.message || '操作失敗',
-          });
-          setError(errorObj);
-          throw errorObj;
-        }
-        
+        await refreshInvitations(); // 重新載入列表
         return result;
       } catch (err) {
         const normalized = normalizeApiError(err);
@@ -114,17 +90,7 @@ export const useInvitations = () => {
       try {
         setError(null);
         const result = await invitationService.resendInvitation(invitationId);
-        
-        if (result.success) {
-          await refreshInvitations(); // 重新載入列表
-        } else {
-          const errorObj = createAppApiError({
-            message: result.error || result.message || '操作失敗',
-          });
-          setError(errorObj);
-          throw errorObj;
-        }
-        
+        await refreshInvitations(); // 重新載入列表
         return result;
       } catch (err) {
         const normalized = normalizeApiError(err);
@@ -161,15 +127,6 @@ export const useInvitations = () => {
         setError(null);
         setLoading(true);
         const result = await invitationService.acceptInvitation(code, password, phone, agreeTerms);
-        
-        if (!result.success) {
-          const errorObj = createAppApiError({
-            message: result.error || result.message || '接受邀請失敗',
-          });
-          setError(errorObj);
-          throw errorObj;
-        }
-        
         return result;
       } catch (err) {
         const normalized = normalizeApiError(err);

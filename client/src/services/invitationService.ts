@@ -1,19 +1,7 @@
 import { request } from '@/lib/api-client';
-import type { AppApiError } from '@/lib/api-error';
-import { Invitation, InvitationResponse, InvitationTemplate } from '@/types/invitations';
+import { Invitation, InvitationTemplate } from '@/types/invitations';
 
 const API_BASE = '/api/v1/invitations';
-
-function errorToInvitationResponse(error: unknown, fallbackMessage: string): InvitationResponse {
-  const apiError = error as Partial<AppApiError>;
-  return {
-    success: false,
-    message: apiError.message || fallbackMessage,
-    error: apiError.message || fallbackMessage,
-    errorCode: apiError.errorCode,
-    logId: apiError.logId,
-  };
-}
 
 export const invitationService = {
   async getCoachShareToken(): Promise<{ token: string; coachId?: string; expiresIn?: string }> {
@@ -40,23 +28,12 @@ export const invitationService = {
     clientEmail: string,
     clientName?: string,
     notes?: string
-  ): Promise<InvitationResponse> {
-    try {
-      const data = await request.post<{ message?: string; logId?: string }>(`${API_BASE}/send`, {
-        client_email: clientEmail,
-        client_name: clientName,
-        notes: notes || ''
-      });
-
-      return {
-        success: true,
-        message: data.message || '邀請已發送成功',
-        data: data,
-        logId: data.logId
-      };
-    } catch (error) {
-      return errorToInvitationResponse(error, '發送邀請失敗');
-    }
+  ): Promise<{ message: string; logId?: string }> {
+    return request.post<{ message?: string; logId?: string }>(`${API_BASE}/send`, {
+      client_email: clientEmail,
+      client_name: clientName,
+      notes: notes || ''
+    }) as Promise<{ message: string; logId?: string }>;
   },
 
   /**
@@ -64,31 +41,27 @@ export const invitationService = {
    * @param status 可選的狀態過濾（PENDING, ACCEPTED, REJECTED, EXPIRED）
    */
   async getInvitationList(status?: string): Promise<Invitation[]> {
-    try {
-      const url = status 
-        ? `${API_BASE}/coach/list?status=${status}`
-        : `${API_BASE}/coach/list`;
-      const data = await request.get<unknown[]>(url);
-      
-      const invitations: Invitation[] = (Array.isArray(data) ? data : []).map((item: any) => ({
-        id: item.id,
-        senderId: item.senderId || '',
-        senderName: item.senderName || '教練',
-        receiverEmail: item.receiverEmail || item.client_email || '',
-        receiverId: item.receiverId,
-        clientName: item.client_name || item.receiverEmail,
-        invitationType: 'COACH_TO_CLIENT' as const,
-        status: item.status as any,
-        token: item.token || '',
-        message: item.message,
-        expiresAt: item.expiresAt || item.expires_at,
-        createdAt: item.createdAt || item.created_at,
-        respondedAt: item.respondedAt || item.responded_at || undefined,
-      }));
-      return invitations;
-    } catch (error) {
-      throw error;
-    }
+    const url = status
+      ? `${API_BASE}/coach/list?status=${status}`
+      : `${API_BASE}/coach/list`;
+    const data = await request.get<unknown[]>(url);
+
+    const invitations: Invitation[] = (Array.isArray(data) ? data : []).map((item: any) => ({
+      id: item.id,
+      senderId: item.senderId || '',
+      senderName: item.senderName || '教練',
+      receiverEmail: item.receiverEmail || item.client_email || '',
+      receiverId: item.receiverId,
+      clientName: item.client_name || item.receiverEmail,
+      invitationType: 'COACH_TO_CLIENT' as const,
+      status: item.status as any,
+      token: item.token || '',
+      message: item.message,
+      expiresAt: item.expiresAt || item.expires_at,
+      createdAt: item.createdAt || item.created_at,
+      respondedAt: item.respondedAt || item.responded_at || undefined,
+    }));
+    return invitations;
   },
 
   /**
@@ -123,61 +96,28 @@ export const invitationService = {
     password: string,
     phone?: string,
     agreeTerms: boolean = true
-  ): Promise<InvitationResponse> {
-    try {
-      const data = await request.post<any>(`${API_BASE}/accept/${code}`, {
-        password,
-        phone: phone || null,
-        agree_terms: agreeTerms
-      });
-
-      return {
-        success: true,
-        message: data.message || '賬戶創建成功！',
-        data: data,
-        logId: data.logId
-      };
-    } catch (error) {
-      return errorToInvitationResponse(error, '接受邀請失敗');
-    }
+  ): Promise<{ message: string; logId?: string; [key: string]: any }> {
+    return request.post<any>(`${API_BASE}/accept/${code}`, {
+      password,
+      phone: phone || null,
+      agree_terms: agreeTerms
+    });
   },
 
   /**
    * 撤銷邀請
    * @param invitationId 邀請 ID
    */
-  async revokeInvitation(invitationId: string): Promise<InvitationResponse> {
-    try {
-      const data = await request.delete<any>(`${API_BASE}/${invitationId}`);
-
-      return {
-        success: true,
-        message: data.message || '邀請已撤銷',
-        data: data,
-        logId: data.logId
-      };
-    } catch (error) {
-      return errorToInvitationResponse(error, '撤銷邀請失敗');
-    }
+  async revokeInvitation(invitationId: string): Promise<{ message?: string; logId?: string }> {
+    return request.delete<any>(`${API_BASE}/${invitationId}`);
   },
 
   /**
    * 重新發送邀請
    * @param invitationId 邀請 ID
    */
-  async resendInvitation(invitationId: string): Promise<InvitationResponse> {
-    try {
-      const data = await request.patch<any>(`${API_BASE}/resend/${invitationId}`);
-
-      return {
-        success: true,
-        message: data.message || '邀請已重新發送',
-        data: data,
-        logId: data.logId
-      };
-    } catch (error) {
-      return errorToInvitationResponse(error, '重新發送邀請失敗');
-    }
+  async resendInvitation(invitationId: string): Promise<{ message?: string; logId?: string }> {
+    return request.patch<any>(`${API_BASE}/resend/${invitationId}`);
   },
 
   /**

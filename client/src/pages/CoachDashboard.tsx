@@ -234,10 +234,7 @@ export default function CoachDashboard() {
         onSubmit={async (email: string, clientName?: string, message?: string) => {
           setSendLoading(true);
           try {
-            const result = await sendInvitation(email, clientName, message);
-            if (!result.success) {
-              throw new Error(result.error || result.message || '發送邀請失敗');
-            }
+            await sendInvitation(email, clientName, message);
             // 成功後刷新客戶列表（如果客戶已註冊）
             refetch();
           } finally {
