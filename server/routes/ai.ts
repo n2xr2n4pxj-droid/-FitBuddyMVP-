@@ -3,6 +3,7 @@ import { verifyJWT } from "../replitAuth";
 import { callGeminiAI } from "../services/aiService";
 import { sendError } from "../lib/response";
 import { ErrorCodes } from "@shared/error-codes";
+import { aiLimiter } from "../middleware/rateLimiter";
 
 const router = Router();
 
@@ -28,11 +29,18 @@ const router = Router();
  *   ]
  * }
  */
-router.post("/ai/generate-routine", verifyJWT, async (req: any, res: any) => {
+router.post("/ai/generate-routine", verifyJWT, aiLimiter, async (req: any, res: any) => {
   try {
     const { prompt } = req.body ?? {};
-    if (!prompt || typeof prompt !== "string") {
+    if (typeof prompt !== "string") {
       return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "prompt is required");
+    }
+    const trimmed = prompt.trim();
+    if (!trimmed) {
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "prompt is required");
+    }
+    if (trimmed.length > 2000) {
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "prompt 最多 2000 字");
     }
 
     const systemPrompt = `You are a professional strength and hypertrophy coach.
@@ -58,7 +66,7 @@ Return ONLY valid JSON that strictly matches this TypeScript shape:
 }
 
 The coach's request:
-${prompt}
+${trimmed}
 
 Constraints:
 - Use Traditional Chinese (Hong Kong) for all names and notes.
@@ -94,11 +102,15 @@ Constraints:
  *   "suggestions": string[]      // 下次建議
  * }
  */
-router.post("/ai/workout-insight", verifyJWT, async (req: any, res: any) => {
+router.post("/ai/workout-insight", verifyJWT, aiLimiter, async (req: any, res: any) => {
   try {
     const { routine, completedExercises } = req.body ?? {};
     if (!routine) {
       return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "routine is required");
+    }
+    const payloadSize = Buffer.byteLength(JSON.stringify(req.body ?? {}), "utf8");
+    if (payloadSize > 50_000) {
+      return sendError(res, 413, ErrorCodes.VALIDATION_ERROR, "payload 超過大小限制");
     }
 
     const name = routine?.name ?? "本次訓練";

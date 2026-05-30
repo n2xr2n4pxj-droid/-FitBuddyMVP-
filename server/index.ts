@@ -28,11 +28,12 @@ app.use(cors({
 }));
 
 app.use(express.json({
+  limit: "100kb",
   verify: (req: express.Request, _res, buf) => {
     (req as express.Request & { rawBody?: Buffer }).rawBody = buf;
   }
 }));
-app.use(express.urlencoded({ extended: false }));
+app.use(express.urlencoded({ extended: false, limit: "100kb" }));
 
 // 健康檢查端點
 app.get('/health', (req, res) => {
