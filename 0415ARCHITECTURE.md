@@ -485,6 +485,29 @@ case "schedule":
 - Day 6-7：security headers + CORS + input validation  
 - Day 8-10：監控事件 + CI 穩定 + 文件收尾
 
+## 當前落地優先順序（更新）
+
+1. **件 8 — CI 整合（先做）**  
+   - `package.json` 加：`validate:7.4`、`test:security:e2e`、`test:security:all`  
+   - 讓 CI 至少先跑 `npm run check && npm run validate:7.4`
+
+2. **件 5a — Helmet 安全標頭（第二）**  
+   - 補 `X-Content-Type-Options`、`X-Frame-Options`、`Referrer-Policy`  
+   - 可再加 `S6c`/`S5a` 檢查到 `validate-7.4.sh`
+
+3. **件 7 — 安全事件結構化日誌（第三）**  
+   - 先定最小 schema（`eventType/status/errorCode/logId/path`）再落地  
+   - 這件最容易牽動既有 logger，放最後較穩
+
+4. **再進 P2（你列的 Step 1~4）**  
+   - 收斂剩餘 commit  
+   - 補 `e2e/phase7.4/*`（token + rate-limit）  
+   - 把 S4 接進 `validate-7.4.sh`  
+   - 更新 `0415ARCHITECTURE.md`（P1 completed / P2 in progress）
+
+一句話結論：**先 P1（8→5a→7），再 P2**。  
+如果你同意，我下一步可以直接開始做 **件 8（CI 整合）**。
+
 ### 7.5 與 iOS App 上架關聯（為什麼 Phase 7 必做）
 
 - **Stability（穩定性）**：若 API 回傳不可預測 500，App 端容易出現白屏/流程中斷，影響審核結果。
