@@ -225,6 +225,41 @@ else
   [[ "$URLENC_CALL_COUNT" -ne 1 ]] && echo "  → express.urlencoded( 出現 ${URLENC_CALL_COUNT} 次（應為 1）"
 fi
 
+header "S7 — 安全事件最小監控（P1）"
+
+echo -e "\n${BOLD}[ S7a — security logger 檔案存在且可匯出 ]${NC}"
+if [[ -f "server/lib/securityLogger.ts" ]] && "$RG_BIN" -q 'export function emitSecurityEvent' server/lib/securityLogger.ts 2>/dev/null; then
+  pass "S7a securityLogger 已建立且包含 emitSecurityEvent"
+else
+  fail "S7a 缺少 securityLogger 或 emitSecurityEvent 匯出"
+fi
+
+echo -e "\n${BOLD}[ S7b — 全域收斂 401/403/429/5xx ]${NC}"
+S7B_STATUS="$("$RG_BIN" -n -U --pcre2 'status\s*===\s*401(?s).*status\s*===\s*403(?s).*status\s*===\s*429(?s).*status\s*>=\s*500' server/index.ts 2>/dev/null || true)"
+S7B_EMIT="$("$RG_BIN" -n 'emitSecurityEvent\(' server/index.ts 2>/dev/null || true)"
+if [[ -n "$S7B_STATUS" && -n "$S7B_EMIT" ]]; then
+  pass "S7b 已在 index.ts 收斂並發送安全事件"
+else
+  fail "S7b index.ts 缺少 401/403/429/5xx 收斂或 emitSecurityEvent 呼叫"
+fi
+
+echo -e "\n${BOLD}[ S7c — sendError 提供 errorCode/logId metadata ]${NC}"
+S7C_META="$("$RG_BIN" -n -U --pcre2 'res\.locals\.securityMeta(?s).*errorCode(?s).*logId' server/lib/response.ts 2>/dev/null || true)"
+if [[ -n "$S7C_META" ]]; then
+  pass "S7c sendError 已提供安全事件 metadata"
+else
+  fail "S7c sendError 缺少 securityMeta(errorCode/logId)"
+fi
+
+echo -e "\n${BOLD}[ S7d — 安全事件欄位無敏感資料 ]${NC}"
+S7D_SENSITIVE="$("$RG_BIN" -n --pcre2 'authorization|password|cookie|refreshToken' server/lib/securityLogger.ts 2>/dev/null || true)"
+if [[ -z "$S7D_SENSITIVE" ]]; then
+  pass "S7d securityLogger 未發現敏感欄位"
+else
+  fail "S7d securityLogger 含敏感欄位關鍵字"
+  echo "$S7D_SENSITIVE"
+fi
+
 header "最終結果"
 echo
 echo -e "  ${GREEN}✅ PASS${NC}: ${PASS_COUNT}"

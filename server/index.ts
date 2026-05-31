@@ -16,6 +16,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { createRequire } from "module";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import { emitSecurityEvent } from "./lib/securityLogger";
 
 const require = createRequire(import.meta.url);
 const cors = require("cors");
@@ -109,6 +110,39 @@ app.use((req, res, next) => {
       }
 
       log(logLine);
+
+      const status = res.statusCode;
+      if (status === 401 || status === 403 || status === 429 || status >= 500) {
+        const securityMeta = res.locals.securityMeta as
+          | { errorCode?: string; logId?: string; status?: number }
+          | undefined;
+        const fallbackErrorCode =
+          status === 401
+            ? "UNAUTHORIZED"
+            : status === 403
+              ? "FORBIDDEN"
+              : status === 429
+                ? "RATE_LIMIT_EXCEEDED"
+                : "INTERNAL_SERVER_ERROR";
+
+        const responseErrorCode =
+          typeof capturedJsonResponse?.errorCode === "string"
+            ? capturedJsonResponse.errorCode
+            : undefined;
+        const authUser = (req as Request & { user?: any }).user;
+        const userId = authUser?.id ?? authUser?.claims?.sub;
+        const ip = req.ip || req.socket.remoteAddress || undefined;
+
+        emitSecurityEvent({
+          status,
+          errorCode: securityMeta?.errorCode ?? responseErrorCode ?? fallbackErrorCode,
+          logId: securityMeta?.logId,
+          path,
+          method: req.method,
+          userId: userId ? String(userId) : undefined,
+          ip: ip ? String(ip) : undefined,
+        });
+      }
     }
   });
 

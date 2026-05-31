@@ -451,7 +451,7 @@ case "schedule":
 - **回歸腳本**
   - E2E：`e2e/phase7.4/input-validation.test.ts`
 
-### ⬜ 7) 安全事件最小監控
+### ✅ 7) 安全事件最小監控（已完成）
 - **實作**
   - 對 `401/403/429/5xx` 產生基本統計或結構化日誌（含 `logId`）。
 - **驗收測試**
@@ -495,7 +495,7 @@ case "schedule":
    - 補 `X-Content-Type-Options`、`X-Frame-Options`、`Referrer-Policy`  
    - 可再加 `S6c`/`S5a` 檢查到 `validate-7.4.sh`
 
-3. **件 7 — 安全事件結構化日誌（第三）**  
+3. **件 7 — 安全事件結構化日誌（完成）**  
    - 先定最小 schema（`eventType/status/errorCode/logId/path`）再落地  
    - 這件最容易牽動既有 logger，放最後較穩
 

@@ -55,6 +55,13 @@ export function sendError(
     );
   }
 
+  // 2.5 Provide metadata for global security-event aggregation middleware.
+  res.locals.securityMeta = {
+    status,
+    errorCode: String(errorCode),
+    logId,
+  };
+
   // 3. Construct the standardized error payload (Flat Shape)
   const body: ApiErrorPayload = {
     success: false,
