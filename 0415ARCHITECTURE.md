@@ -434,7 +434,7 @@ case "schedule":
 
 ## 第 2 週（P1：建議補齊）
 
-### ⬜ 5) 安全標頭與 CORS 收斂
+### ✅ 5) 安全標頭與 CORS 收斂（已完成）
 - **實作**
   - 補 `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` 等最小組。
   - CORS 白名單化（prod 環境不允許 `*`）。
@@ -487,11 +487,11 @@ case "schedule":
 
 ## 當前落地優先順序（更新）
 
-1. **件 8 — CI 整合（先做）**  
+1. **件 8 — CI 整合（完成）**  
    - `package.json` 加：`validate:7.4`、`test:security:e2e`、`test:security:all`  
    - 讓 CI 至少先跑 `npm run check && npm run validate:7.4`
 
-2. **件 5a — Helmet 安全標頭（第二）**  
+2. **件 5a — Helmet 安全標頭（完成）**  
    - 補 `X-Content-Type-Options`、`X-Frame-Options`、`Referrer-Policy`  
    - 可再加 `S6c`/`S5a` 檢查到 `validate-7.4.sh`
 

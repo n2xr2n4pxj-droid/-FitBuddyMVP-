@@ -103,7 +103,10 @@ export const config = {
 
   // ========== CORS 配置 ==========
   cors: {
-    origin: getEnv('CORS_ORIGIN', 'http://localhost:5173'),
+    origins: getEnv('CORS_ORIGIN', 'http://localhost:5173')
+      .split(',')
+      .map((origin) => origin.trim())
+      .filter((origin) => origin.length > 0),
     credentials: true,
   },
 
@@ -157,6 +160,14 @@ export function validateConfig(): void {
     // Email 配置（Resend）
     if (!config.email.resendApiKey) {
       console.warn('⚠️  RESEND_API_KEY is not set - email functionality will be disabled');
+    }
+
+    // CORS prod 防呆
+    if (config.cors.origins.length === 0) {
+      errors.push('CORS_ORIGIN must not be empty in production');
+    }
+    if (config.cors.origins.includes('*')) {
+      errors.push('CORS_ORIGIN must not contain "*" in production');
     }
   } else {
     // 開發環境警告

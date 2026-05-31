@@ -23,6 +23,7 @@ const helmet = require("helmet");
 
 const app = express();
 const isProduction = config.app.env === "production";
+const allowedOrigins = config.cors.origins;
 
 app.use(
   helmet({
@@ -47,8 +48,24 @@ app.use(
   })
 );
 
+// Origin guard: explicitly reject requests from unapproved browser origins.
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && !allowedOrigins.includes(origin)) {
+    res.status(403).json({ errorCode: "CORS_ORIGIN_DENIED" });
+    return;
+  }
+  next();
+});
+
 app.use(cors({
-  origin: config.cors.origin,
+  origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+      return;
+    }
+    callback(null, false);
+  },
   credentials: config.cors.credentials,
 }));
 

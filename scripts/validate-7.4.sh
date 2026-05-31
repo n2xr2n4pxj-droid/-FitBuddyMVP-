@@ -166,6 +166,25 @@ else
   fail "S5a 未找到 contentSecurityPolicy 設定"
 fi
 
+echo -e "\n${BOLD}[ S5b — CORS 白名單化 ]${NC}"
+if "$RG_BIN" -q -U --pcre2 "origins\\s*:\\s*getEnv\\([^)]*\\)(?s).*?\\.split\\(\\s*['\\\"]\\s*,\\s*['\\\"]\\s*\\)" server/config/env.ts 2>/dev/null; then
+  pass "S5b CORS 支援逗號分隔多來源"
+else
+  fail "S5b CORS 未支援逗號分隔多來源"
+fi
+
+if "$RG_BIN" -q -U --pcre2 "includes\\s*\\(\\s*['\\\"]\\*['\\\"]\\s*\\)" server/config/env.ts 2>/dev/null; then
+  pass "S5b production 禁用 * 驗證已加入"
+else
+  fail "S5b 缺少 production 禁用 * 的驗證邏輯"
+fi
+
+if "$RG_BIN" -q 'CORS_ORIGIN_DENIED' server/index.ts 2>/dev/null; then
+  pass "S5b 非法來源回 403 guard 已加入"
+else
+  fail "S5b 缺少非法來源 403 guard"
+fi
+
 header "S6 — 輸入邊界檢查（P1）"
 
 echo -e "\n${BOLD}[ S6a — AI 端點有 prompt/payload 長度限制 ]${NC}"
