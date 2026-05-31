@@ -323,7 +323,179 @@ case "schedule":
 3. **完成註冊流程 TODO**：補齊 `RegisterFlow` 驗證/錯誤顯示，避免流程中斷。  
 4. **（已完成）收斂 DB schema 策略**：已定版 Drizzle 為單一真實來源，Prisma schema/依賴已移除。  
 5. **（已完成）建立錯誤契約標準**：後端統一 `{ errorCode, message, logId }`，前端單一解析層。  
-6. **補測試空白區**：notifications、analytics、nutrition plans 的 API/前端互動測試。  
+6. **（已完成）補測試空白區**：notifications、analytics、nutrition plans 的 API/前端互動測試。  
+   - API e2e：`e2e/phase6b/notifications.test.ts`、`e2e/phase6b/analytics.test.ts`、`e2e/phase6c/plans.test.ts`。  
+   - 前端互動（Playwright）：`tests/phase6c/notifications.ui.spec.ts`、`tests/phase6c/analytics.ui.spec.ts`、`tests/phase6c/nutrition-plans.ui.spec.ts`。  
+   - 最新驗證（2026-05-30）：`phase6b` 33/33、`phase6c` 73/73、`tests/phase6c` 3/3 全通過。  
+
+---
+
+## Phase 7: System Hardening（系統硬化）藍圖
+
+> 目標：在功能可用與測試覆蓋達標後，系統化降低「上線風險」、「擴展成本」與「審核失敗風險」（尤其 iOS App Store）。
+
+### 7.1 錯誤合約標準化（Error Contract Robustness）（已完成）
+
+- **核心目標**：消除所有「不明確的失敗」。
+- **現況**：雖已完成錯誤契約收斂，但仍需持續防止新路由回退成模糊 500；前端對錯誤語義依賴高。
+- **硬化動作**：
+  - 強制所有 API 失敗路徑使用明確語義狀態碼（`400/401/403/404/409/422/429/5xx`）。
+  - 失敗回應統一格式（至少含 `errorCode`、`message`、`logId`），禁止散落字串錯誤。
+  - 增加契約檢查（lint/測試 gate），避免 PR 引入非標準錯誤格式。
+  - 補齊前端錯誤映射（以 `errorCode` 驅動 UI 文案，而非僅以 HTTP code 判斷）。
+
+### 7.2 API 路由統一與版本治理（API Unification & Versioning）
+
+- **核心目標**：降低技術債，確保可演進性。
+- **現況**：存在 `/api/` 與部分 `/api/v1/` 並存情況，長期會增加維護與遷移成本。
+- **硬化動作**：
+  - 制定單一版本策略（例如明確規範新功能是否必須走 `/api/v1`）。
+  - 建立 deprecation 規範：舊路由公告期、相容期、移除期。
+  - 對外（Mobile/Web）維持穩定契約，重大變更採版本切換而非破壞性覆寫。
+  - 產出路由清單與責任邊界文件，避免重複與陰影端點。
+
+### 7.3 資料庫效能優化（Database Performance & Scalability）
+
+- **核心目標**：隨使用量成長仍可維持低延遲與穩定吞吐。
+- **現況**：查詢多為功能導向開發結果，尚需系統化效能審查。
+- **硬化動作**：
+  - 對高頻查詢模組（`analytics`、`workouts`、`plans`）執行 `EXPLAIN ANALYZE` 盤點。
+  - 建立索引策略（查詢條件欄位、排序欄位、複合索引）與 migration 管理。
+  - 檢查/避免 N+1 查詢與不必要 round-trip。
+  - 建立基準測試（P95/P99、QPS）並納入回歸檢查。
+
+### 7.4 安全性加固（Security Hardening）
+
+- **核心目標**：確保 ReBAC/RBAC 與認證邊界可持續承受惡意流量與誤用。
+- **現況**：現有測試可驗證主要流程，但仍需進一步防禦深度。
+- **硬化動作**：
+  - 盤點並強化 Rate Limiting（登入、邀請、敏感寫入、AI 端點）。
+  - 強化 JWT/Refresh Token 驗證流程（簽發、輪替、失效、時鐘偏移容忍）。
+  - 檢查敏感資料傳輸與儲存安全（最小揭露、遮罩、審計 log）。
+  - 建立安全事件監控與告警（異常登入、暴力嘗試、權限邊界觸發）。
+
+## 目標與完成定義
+
+- 目標：先把「可被濫用、可被撞庫、可越權、可洩漏敏感資訊」這四類風險壓下來。
+- 完成定義（DoD）：
+  - 關鍵端點有 rate limit，且能被測到 `429`。
+  - 關鍵寫入端點都有授權邊界測試（`401/403`）。
+  - token 驗證有基本硬化（過期/偽造/錯誤簽章不可通過）。
+  - log 不外洩 `password/token/authorization`。
+  - 有一個總控腳本：`scripts/validate-7.4.sh` 可一鍵回歸。
+- 狀態圖例：`✅ 已完成` / `🟡 進行中` / `⬜ 待開始`
+
+---
+
+## 第 1 週（P0：一定要上）
+
+### ✅ 1) 關鍵端點 Rate Limiting（已完成）
+- **實作**
+  - 對 `login/register/forgot-password`（你已部分有）做統一策略。
+  - 補上 `invitations`、`ai`、敏感寫入（如 `plans/assign`）限制。
+- **驗收測試**
+  - 同一 IP 短時間連打，應出現 `429` + `Retry-After`。
+  - 不同端點命中各自限制，不互相污染。
+- **回歸腳本**
+  - `scripts/phase7.4/check-rate-limit.sh`
+  - 聚合到 `scripts/validate-7.4.sh`
+
+### ✅ 2) JWT / Token 最小硬化（已完成）
+- **實作**
+  - 拒絕過期 token、錯誤簽章 token、格式錯誤 token。
+  - 驗證 `issuer/audience`（若你現況有設定）。
+- **驗收測試**
+  - 三種壞 token 都回 `401`，且錯誤格式符合 7.1 contract。
+- **回歸腳本**
+  - E2E：`e2e/phase7.4/auth-token-hardening.test.ts`
+  - 指令：`npx vitest run e2e/phase7.4/auth-token-hardening.test.ts`
+
+### 🟡 3) 授權邊界（ReBAC/RBAC）防線
+- **實作**
+  - 針對 `coach-client`、`plans`、`invitations` 建立未授權/跨帳號防護檢查。
+- **驗收測試**
+  - 非本人/非教練操作應 `403`。
+  - 已授權關係可正常 `200/201`。
+- **回歸腳本**
+  - E2E：`e2e/phase7.4/authorization-boundary.test.ts`
+  - 指令：`npx vitest run e2e/phase7.4/authorization-boundary.test.ts`
+
+### ✅ 4) 敏感資訊遮罩與錯誤最小揭露（已完成）
+- **實作**
+  - 統一 logger redact：`password`, `token`, `authorization`, `cookie`, `refreshToken`。
+  - 5xx 不回內部堆疊/SQL/secret。
+- **驗收測試**
+  - 觸發錯誤後，response 不含敏感字串；log 也不含明文。
+- **回歸腳本**
+  - `scripts/phase7.4/check-redaction.sh`（跑測試後掃 log）
+  - 可搭配 `rg` 規則檢查敏感關鍵字。
+
+---
+
+## 第 2 週（P1：建議補齊）
+
+### ⬜ 5) 安全標頭與 CORS 收斂
+- **實作**
+  - 補 `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy` 等最小組。
+  - CORS 白名單化（prod 環境不允許 `*`）。
+- **驗收測試**
+  - 關鍵 API 回應有標頭；非法來源被擋。
+- **回歸腳本**
+  - `scripts/phase7.4/check-security-headers.sh`
+
+### ✅ 6) 請求體驗證與輸入邊界（已完成）
+- **實作**
+  - 高風險寫入端點補齊 schema 驗證與長度限制（避免超大 payload / injection）。
+- **驗收測試**
+  - 非法 payload 回 `400/422`，合法 payload 正常。
+- **回歸腳本**
+  - E2E：`e2e/phase7.4/input-validation.test.ts`
+
+### ⬜ 7) 安全事件最小監控
+- **實作**
+  - 對 `401/403/429/5xx` 產生基本統計或結構化日誌（含 `logId`）。
+- **驗收測試**
+  - 人工觸發事件可在 log 看到對應欄位（不含敏感值）。
+- **回歸腳本**
+  - `scripts/phase7.4/check-security-events.sh`
+
+### ⬜ 8) 總控守門（CI 可跑）
+- **實作**
+  - 建立 `scripts/validate-7.4.sh`，串接所有檢查。
+- **驗收測試**
+  - 本機與 CI 均可一鍵執行，失敗時有明確 FAIL 訊息。
+- **回歸腳本**
+  - `scripts/validate-7.4.sh`（唯一入口）
+
+---
+
+## 建議新增指令（`package.json`）
+
+- `test:security:e2e`: `vitest run e2e/phase7.4 --reporter=verbose`
+- `validate:7.4`: `bash scripts/validate-7.4.sh`
+- `test:security:all`: `npm run test:security:e2e && npm run validate:7.4`
+
+---
+
+## 執行順序（最短路徑）
+
+- Day 1-2：Rate limit + 驗證腳本  
+- Day 3-4：JWT/token + 授權邊界測試  
+- Day 5：redaction + validate-7.4 初版  
+- Day 6-7：security headers + CORS + input validation  
+- Day 8-10：監控事件 + CI 穩定 + 文件收尾
+
+### 7.5 與 iOS App 上架關聯（為什麼 Phase 7 必做）
+
+- **Stability（穩定性）**：若 API 回傳不可預測 500，App 端容易出現白屏/流程中斷，影響審核結果。
+- **Predictability（可預測性）**：App 需對常見失敗場景提供可理解回饋（重試、引導、降級），不能依賴崩潰式處理。
+- **結論**：Phase 7 是從「可用產品」升級到「可上架、可營運、可擴展產品」的必要工程，不是可選優化。
+
+### 7.6 建議執行順序（落地版）
+
+1. **P0（先做）**：7.1 錯誤合約守門 + 7.4 安全最小防線。  
+2. **P1（次做）**：7.2 版本治理與路由統一。  
+3. **P1/P2（持續）**：7.3 效能基線、索引優化、壓測回歸。  
 
 ---
 
