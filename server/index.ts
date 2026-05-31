@@ -19,8 +19,33 @@ import { setupVite, serveStatic, log } from "./vite";
 
 const require = createRequire(import.meta.url);
 const cors = require("cors");
+const helmet = require("helmet");
 
 const app = express();
+const isProduction = config.app.env === "production";
+
+app.use(
+  helmet({
+    contentSecurityPolicy: isProduction
+      ? {
+          directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'"],
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            imgSrc: ["'self'", "data:", "blob:"],
+            fontSrc: ["'self'", "data:"],
+            connectSrc: ["'self'"],
+            objectSrc: ["'none'"],
+            frameAncestors: ["'none'"],
+            baseUri: ["'self'"],
+            formAction: ["'self'"],
+          },
+        }
+      : false,
+    referrerPolicy: { policy: "no-referrer" },
+    frameguard: { action: "deny" },
+  })
+);
 
 app.use(cors({
   origin: config.cors.origin,

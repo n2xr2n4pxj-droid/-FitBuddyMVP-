@@ -137,6 +137,35 @@ else
   pass "S3c RATE_LIMIT_ENABLED 未關閉"
 fi
 
+header "S5 — 安全標頭與 CORS 收斂（P1）"
+
+echo -e "\n${BOLD}[ S5a — Helmet 安全標頭已掛載 ]${NC}"
+if "$RG_BIN" -q 'helmet\(' server/index.ts 2>/dev/null; then
+  pass "S5a helmet() 已掛載"
+else
+  fail "S5a server/index.ts 缺少 helmet()"
+fi
+
+if "$RG_BIN" -q 'frameguard:\s*\{\s*action:\s*"deny"\s*\}' server/index.ts 2>/dev/null; then
+  pass "S5a frameguard=deny 已設定"
+else
+  fail "S5a 缺少 frameguard=deny"
+fi
+
+if "$RG_BIN" -q 'referrerPolicy:\s*\{\s*policy:\s*"no-referrer"\s*\}' server/index.ts 2>/dev/null; then
+  pass "S5a referrerPolicy=no-referrer 已設定"
+else
+  fail "S5a 缺少 referrerPolicy=no-referrer"
+fi
+
+if "$RG_BIN" -q -U --pcre2 'contentSecurityPolicy:\s*isProduction\s*\?\s*\{(?s).*?directives\s*:' server/index.ts 2>/dev/null; then
+  pass "S5a CSP production 模式已設定 directives"
+elif "$RG_BIN" -q 'contentSecurityPolicy:\s*false' server/index.ts 2>/dev/null; then
+  warn "S5a CSP 寫死關閉（建議改為 env-aware）"
+else
+  fail "S5a 未找到 contentSecurityPolicy 設定"
+fi
+
 header "S6 — 輸入邊界檢查（P1）"
 
 echo -e "\n${BOLD}[ S6a — AI 端點有 prompt/payload 長度限制 ]${NC}"
