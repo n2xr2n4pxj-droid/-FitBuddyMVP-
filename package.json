@@ -13,12 +13,17 @@
     "start": "NODE_ENV=production node dist/index.js",
     "check": "tsc",
     "e2e": "tsx server/scripts/e2e-test.ts",
+    "test:e2e:phase6c-ui": "playwright test tests/phase6c --reporter=line",
+    "test:e2e:all": "playwright test tests/ --reporter=line",
     "env:check": "node scripts/check-env.js",
     "db:push": "drizzle-kit push --config=drizzle.config.cjs",
     "db:generate": "drizzle-kit generate --config=drizzle.config.cjs",
     "db:studio": "drizzle-kit studio --config=drizzle.config.cjs",
     "db:clean": "psql $DATABASE_URL -c \"DELETE FROM users;\"",
     "db:reset": "psql $DATABASE_URL -c \"DELETE FROM users; DELETE FROM coaching_sessions;\"",
+    "validate:7.4": "bash scripts/validate-7.4.sh",
+    "test:security:e2e": "vitest run e2e/phase7.4 --reporter=verbose",
+    "test:security:all": "npm run validate:7.4 && npm run test:security:e2e",
     "prepare": "husky"
   },
   "dependencies": {
@@ -133,7 +138,8 @@
     "tailwindcss": "^3.4.18",
     "tsx": "^4.20.5",
     "typescript": "5.5.4",
-    "vite": "^7.2.2"
+    "vite": "^7.2.2",
+    "vitest": "^4.1.6"
   },
   "optionalDependencies": {
     "bufferutil": "^4.0.8"
