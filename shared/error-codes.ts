@@ -1,0 +1,42 @@
+/**
+ * @file shared/error-codes.ts
+ * @description Standardized error codes for the entire FitBuddyMVP ecosystem.
+ * Uses Domain Prefixing (e.g., AUTH_, WORKOUT_) to prevent collisions and improve clarity.
+ */
+
+export const ErrorCodes = {
+  // --- General Errors ---
+  UNKNOWN: "UNKNOWN",
+  INTERNAL_ERROR: "INTERNAL_ERROR", // 保留舊碼，避免破壞現有引用
+  INTERNAL_SERVER_ERROR: "INTERNAL_SERVER_ERROR",
+  BAD_REQUEST: "BAD_REQUEST",
+  UNAUTHORIZED: "UNAUTHORIZED",
+  FORBIDDEN: "FORBIDDEN",
+  NOT_FOUND: "NOT_FOUND",
+  CONFLICT: "CONFLICT",
+  TOO_MANY_REQUESTS: "TOO_MANY_REQUESTS",
+  VALIDATION_ERROR: "VALIDATION_ERROR",
+
+  // --- Auth Errors ---
+  AUTH_INVALID_CREDENTIALS: "AUTH_INVALID_CREDENTIALS",
+  AUTH_TOKEN_EXPIRED: "AUTH_TOKEN_EXPIRED",
+  AUTH_TOKEN_INVALID: "AUTH_TOKEN_INVALID",
+  AUTH_NO_TOKEN: "AUTH_NO_TOKEN",
+  AUTH_USER_NOT_FOUND: "AUTH_USER_NOT_FOUND",
+  AUTH_USER_EXISTS: "AUTH_USER_EXISTS",
+  AUTH_VERIFICATION_REQUIRED: "AUTH_VERIFICATION_REQUIRED",
+
+  // --- Workout Errors ---
+  WORKOUT_NOT_FOUND: "WORKOUT_NOT_FOUND",
+  WORKOUT_VALIDATION_FAILED: "WORKOUT_VALIDATION_FAILED",
+
+  // --- Invitation Errors ---
+  INVITATION_EXPIRED: "INVITATION_EXPIRED",
+  INVITATION_ALREADY_ACCEPTED: "INVITATION_ALREADY_ACCEPTED",
+
+  // --- Plan / Nutrition Errors ---
+  PLAN_NOT_FOUND: "PLAN_NOT_FOUND",
+  NUTRITION_DATA_MISSING: "NUTRITION_DATA_MISSING",
+} as const;
+
+export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];

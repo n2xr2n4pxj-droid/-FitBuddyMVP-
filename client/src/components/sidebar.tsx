@@ -2,6 +2,8 @@ import { Link, useLocation } from "wouter";
 import { Home, History, TrendingUp, User, LogOut } from "lucide-react";
 import { queryClient } from "@/lib/queryClient";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/hooks/useAuth";
+import { useToast } from "@/hooks/use-toast";
 
 const navigation = [
   { name: "Dashboard", href: "/", icon: Home },
@@ -11,26 +13,33 @@ const navigation = [
 ];
 
 export default function Sidebar() {
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
+  const { logout: authLogout } = useAuth();
+  const { toast } = useToast();
 
   const logout = async () => {
     try {
-      const response = await fetch("/api/auth/logout", {
-        method: "POST",
-        credentials: "include",
-      });
-
-      if (!response.ok) {
-        throw new Error("Logout failed");
-      }
-
-      // Clear all React Query cache
-      queryClient.clear();
+      // 使用 auth store 的 logout 方法
+      // 這會清除 token、用戶狀態和 React Query 緩存
+      authLogout();
       
-      // Redirect to login page
-      window.location.href = "/login";
+      // 顯示成功提示
+      toast({
+        title: "已登出",
+        description: "您已成功登出",
+      });
+      
+      // 延遲重定向以確保狀態已清除
+      setTimeout(() => {
+        setLocation("/login");
+      }, 100);
     } catch (error) {
       console.error("Logout failed:", error);
+      toast({
+        title: "登出失敗",
+        description: "無法完成登出，請稍後再試",
+        variant: "destructive",
+      });
     }
   };
 

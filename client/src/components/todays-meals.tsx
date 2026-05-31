@@ -117,10 +117,10 @@ export default function TodaysMeals() {
               console.log(`[TodaysMeals] Rendering meal ${meal.id}:`, meal);
               
               const mealType = (meal.mealType || 'snack').toLowerCase();
-              const foodName = meal.name || meal.foodName || 'Unknown Food'; // 優先使用 name，向後兼容 foodName
+              const foodName = meal.name || 'Unknown Food';
               // 優先使用 userServingAmount，如果沒有則使用 servingSize
               const servingSize = meal.userServingAmount || meal.servingSize;
-              const mealDate = meal.consumedAt || meal.date || meal.createdAt;
+              const mealDate = meal.consumedAt || meal.createdAt;
               
               console.log(`[TodaysMeals] Meal ${meal.id} - servingSize: ${meal.servingSize}, userServingAmount: ${meal.userServingAmount}, display: ${servingSize}g`);
               

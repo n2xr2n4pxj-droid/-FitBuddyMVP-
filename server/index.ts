@@ -1,16 +1,47 @@
-import "dotenv/config";
+// ==========================================
+// 環境變量加載和驗證（必須在最開始執行）
+// ==========================================
+import { config, validateConfig, getConfigSummary } from "./config/env";
+
+// 驗證環境變量配置
+try {
+  validateConfig();
+  console.log('📋 Configuration Summary:', JSON.stringify(getConfigSummary(), null, 2));
+} catch (error) {
+  console.error('❌ Failed to validate environment variables:', error);
+  process.exit(1);
+}
+
 import express, { type Request, Response, NextFunction } from "express";
+import { createRequire } from "module";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 
+const require = createRequire(import.meta.url);
+const cors = require("cors");
+
 const app = express();
 
+app.use(cors({
+  origin: config.cors.origin,
+  credentials: config.cors.credentials,
+}));
+
 app.use(express.json({
+  limit: "100kb",
   verify: (req: express.Request, _res, buf) => {
     (req as express.Request & { rawBody?: Buffer }).rawBody = buf;
   }
 }));
-app.use(express.urlencoded({ extended: false }));
+app.use(express.urlencoded({ extended: false, limit: "100kb" }));
+
+// 健康檢查端點
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
+
+
+
 
 app.use((req, res, next) => {
   const start = Date.now();
@@ -49,8 +80,9 @@ app.use((req, res, next) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
 
-    res.status(status).json({ message });
-    throw err;
+    if (!res.headersSent) {
+      res.status(status).json({ message });
+    }
   });
 
   // importantly only setup vite in development and after
@@ -66,8 +98,10 @@ app.use((req, res, next) => {
   // Other ports are firewalled. Default to 3000 if not specified.
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
-  const port = parseInt(process.env.PORT || '3000', 10);
+  const port = config.app.port;
   server.listen(port, "0.0.0.0", () => {
-    log(`serving on port ${port}`);
+    log(`🚀 FitBuddy server started on port ${port}`);
+    log(`📝 Environment: ${config.app.env}`);
+    log(`🌐 Client URL: ${config.app.clientUrl}`);
   });
 })();

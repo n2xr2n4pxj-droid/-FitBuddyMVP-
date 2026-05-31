@@ -2,30 +2,161 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
-import { insertMealSchema, insertWorkoutSchema, calculateTDEESchema, updateUserTDEESchema, meals } from "@shared/schema";
+import { meals } from "./db/schema";
+import { insertMealSchema, insertWorkoutSchema, calculateTDEESchema, updateUserTDEESchema } from "../shared/schema";
 import { format } from "date-fns";
 import { calculateTDEE, calculateMacros } from "./tdee";
 import { db } from "./db";
 import { eq, and } from "drizzle-orm";
 import workoutRoutes from "./routes/workouts";
+import coachRoutes from "./routes/coaches";
+import coachClientRoutes from "./routes/coach-client";
+import plansRoutes from "./routes/plans";
+import authRoutes from "./routes/auth";
+import invitationRoutes from "./routes/invitations";
+import emailAdminRouter from "./routes/emailAdminRoutes";
+import foodRoutes from "./routes/food";
+import healthRoutes from "./routes/health";
+import userRoutes from "./routes/users";
+import usersV1PublicRoutes from "./routes/users-v1";
+import aiRoutes from "./routes/ai";
+import exercisesRoutes from "./routes/exercises";
+import dashboardRoutes from "./routes/dashboard";
+import notificationsRoutes from "./routes/notifications";
+import analyticsRoutes from "./routes/analytics";
+import nutritionRoutes from "./routes/nutrition";
+import { sendError } from "./lib/response";
+import { ErrorCodes } from "@shared/error-codes";
+import { loginLimiter, registerLimiter } from "./middleware/rateLimiter";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
   await setupAuth(app);
 
+  // Health (no auth)
+  app.use("/api", healthRoutes);
+  // Users (JWT, admin or self)
+  app.use("/api", userRoutes);
+
+  // Users v1 — 公開：GET /api/v1/users/check-username
+  app.use("/api/v1/users", usersV1PublicRoutes);
+
+  // Register auth routes（登入/註冊/忘記密碼加速率限制）
+  app.use("/api/auth/login", loginLimiter);
+  app.use("/api/auth/register", registerLimiter);
+  app.use("/api/auth/forgot-password", registerLimiter);
+  app.use("/api", authRoutes);
+
   // Register workout routes
   app.use("/api", workoutRoutes);
+  
+  // AI routes: /api/ai/generate-routine, /api/ai/workout-summary
+  app.use("/api", aiRoutes);
+  
+  // Register coach routes
+  // Routes: /api/coaches/add-client, /api/coaches/invite, /api/coaches/clients, etc.
+  app.use("/api", coachRoutes);
+  // Coach/client relationship list (coach_clients table): /api/coach/clients, /api/client/coaches
+  app.use("/api", coachClientRoutes);
+  
+  // Plans（Phase D）：/api/plans/*
+  app.use("/api", plansRoutes);
+  // Dashboard（Phase E）：/api/dashboard/*
+  app.use("/api/dashboard", dashboardRoutes);
+  // Notifications（Phase F）：/api/notifications/*
+  app.use("/api", notificationsRoutes);
+  // Analytics（Phase H）：/api/analytics/*
+  app.use("/api/analytics", analyticsRoutes);
+  // Nutrition（Phase G）：/api/nutrition/*
+  app.use("/api/nutrition", nutritionRoutes);
+  
+  // Register invitation routes (v1 API - recommended)
+  // Routes: /api/v1/invitations/send, /api/v1/invitations/status/:code, /api/v1/invitations/accept/:code, etc.
+  app.use("/api/v1/invitations", invitationRoutes);
+  
+  // Register invitation routes (legacy - for backward compatibility)
+  // Routes: /api/invitations/send, /api/invitations/status/:code, etc.
+  app.use("/api/invitations", invitationRoutes);
+  
+  // Admin email routes
+  app.use("/api/admin/email", emailAdminRouter);
+  
+  // Open Food Facts API routes
+  // Routes: /api/food/search?query=...
+  app.use("/api/food", foodRoutes);
+
+  // Exercises (動作庫)：GET /api/exercises?search=...
+  app.use("/api", exercisesRoutes);
 
   // Auth routes
-  app.get("/api/auth/user", async (req: any, res) => {
+  // Deprecated compatibility endpoint.
+  // New clients should use GET /api/auth/me (JWT path).
+  app.get("/api/auth/user", isAuthenticated, async (req: any, res) => {
     try {
-      if (!req.isAuthenticated || !req.isAuthenticated() || !req.user) {
-        return res.json(null);
+      console.warn("[DEPRECATED] GET /api/auth/user is deprecated, use /api/auth/me");
+      res.setHeader("Deprecation", "true");
+      res.setHeader("Sunset", "Wed, 31 Dec 2026 23:59:59 GMT");
+      res.setHeader("Link", '</api/auth/me>; rel="successor-version"');
+
+      const userId = req.user?.claims?.sub || req.user?.id;
+      if (!userId) {
+        return sendError(res, 401, ErrorCodes.UNAUTHORIZED, "Not authenticated");
       }
 
-      // 直接從 session 中回傳使用者資訊，但移除敏感欄位
-      const { passwordHash, ...safeUser } = req.user || {};
-      res.json(safeUser || null);
+      const { pool } = await import("./db");
+      const result = await pool.query(
+        `SELECT id, email, first_name, last_name, role, avatar, created_at,
+                age, gender, height, weight, activity_level, goal, tdee
+         FROM users WHERE id = $1 LIMIT 1`,
+        [userId]
+      );
+
+      if (result.rows.length === 0) {
+        return sendError(res, 401, ErrorCodes.AUTH_USER_NOT_FOUND, "User not found");
+      }
+
+      const dbUser = result.rows[0];
+
+      const hasTDEEBasicInfo = !!(
+        dbUser.age !== null &&
+        dbUser.age !== undefined &&
+        dbUser.gender !== null &&
+        dbUser.gender !== undefined &&
+        dbUser.height !== null &&
+        dbUser.height !== undefined &&
+        dbUser.weight !== null &&
+        dbUser.weight !== undefined
+      );
+      const hasTDEEComplete = !!(
+        hasTDEEBasicInfo &&
+        dbUser.activity_level &&
+        dbUser.goal &&
+        dbUser.tdee
+      );
+      const hasRole = !!(dbUser.role === "COACH" || hasTDEEComplete);
+      const registrationComplete = hasTDEEComplete;
+      const nextStep = !hasTDEEBasicInfo ? 3 : !hasTDEEComplete ? 4 : null;
+
+      const user = {
+        id: dbUser.id,
+        email: dbUser.email,
+        firstName: dbUser.first_name,
+        lastName: dbUser.last_name,
+        avatar: dbUser.avatar || null,
+        role: dbUser.role,
+        createdAt: dbUser.created_at,
+        registrationComplete,
+        hasTDEEComplete,
+        hasRole,
+        nextStep,
+      };
+
+      // 禁用緩存，盡量保持與 /auth/me 一致的即時性
+      res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
+
+      res.json(user);
     } catch (error) {
       console.error("Error fetching user:", error);
       res.status(500).json({ message: "Failed to fetch user" });
@@ -228,7 +359,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(personalBests);
     } catch (error) {
       console.error("Error fetching personal best:", error);
-      res.status(500).json({ error: "Failed to fetch personal best" });
+      return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to fetch personal best");
     }
   });
 
@@ -410,7 +541,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(result.rows[0]);
     } catch (error: any) {
       console.error("Error updating workout:", error);
-      res.status(500).json({ error: "Failed to update workout" });
+      return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, "Failed to update workout");
     }
   });
 
@@ -482,91 +613,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         message: "Failed to fetch weekly summary",
         error: error?.message || String(error)
       });
-    }
-  });
-
-  // USDA Nutrition API proxy
-  app.get("/api/nutrition/search/:query", isAuthenticated, async (req, res) => {
-    try {
-      const { query } = req.params;
-      
-      if (!query || query.length < 2) {
-        return res.json([]);
-      }
-
-      const apiKey = process.env.USDA_API_KEY || "DEMO_KEY";
-      
-      // Check if using DEMO_KEY
-      if (apiKey === "DEMO_KEY") {
-        console.warn("Warning: Using DEMO_KEY for USDA API. Results may be limited. Get a free API key at https://fdc.nal.usda.gov/api-guide.html");
-      }
-      
-      const url = `https://api.nal.usda.gov/fdc/v1/foods/search?api_key=${apiKey}&query=${encodeURIComponent(query)}&pageSize=10`;
-      
-      console.log(`[USDA API] Searching for: "${query}" with API key: ${apiKey.substring(0, 10)}...`);
-
-      const response = await fetch(url);
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("USDA API error:", {
-          status: response.status,
-          statusText: response.statusText,
-          errorText: errorText.substring(0, 500), // Limit log size
-          query,
-          apiKeyPrefix: apiKey.substring(0, 10) + "..."
-        });
-        
-        // If API key is invalid or rate limited, return helpful error
-        if (response.status === 403 || response.status === 401) {
-          return res.status(500).json({ 
-            message: "USDA API key is invalid or expired. Please set a valid USDA_API_KEY in your .env file. Get a free key at https://fdc.nal.usda.gov/api-guide.html" 
-          });
-        }
-        
-        return res.status(500).json({ 
-          message: `Failed to search foods: ${response.status} ${response.statusText}` 
-        });
-      }
-
-      const data = await response.json();
-      
-      // Check if API returned an error message
-      if (data.error) {
-        console.error("USDA API error response:", data.error);
-        return res.status(500).json({ message: data.error.message || "Failed to search foods" });
-      }
-      
-      // Log successful response
-      console.log(`[USDA API] Found ${data.foods?.length || 0} results for "${query}"`);
-      
-      // Transform USDA results to our format
-      const foods = (data.foods || []).map((food: any) => {
-        const nutrients = food.foodNutrients || [];
-        
-        // Find specific nutrients by nutrient ID
-        const getNutrient = (nutrientId: number) => {
-          const nutrient = nutrients.find((n: any) => n.nutrientId === nutrientId);
-          return nutrient ? nutrient.value : undefined;
-        };
-
-        return {
-          fdcId: food.fdcId,
-          description: food.description,
-          brandName: food.brandName,
-          servingSize: food.servingSize,
-          servingSizeUnit: food.servingSizeUnit,
-          calories: getNutrient(1008), // Energy (kcal)
-          protein: getNutrient(1003), // Protein
-          carbs: getNutrient(1005), // Carbohydrates
-          fat: getNutrient(1004), // Total fat
-        };
-      });
-
-      res.json(foods);
-    } catch (error) {
-      console.error("Error searching nutrition:", error);
-      res.status(500).json({ message: "Failed to search foods" });
     }
   });
 
@@ -646,7 +692,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       if (!mealId) {
-        return res.status(400).json({ error: "Invalid meal ID" });
+        return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, "Invalid meal ID");
       }
 
       // Extract update fields (support both camelCase and snake_case for compatibility)
@@ -678,7 +724,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         .limit(1);
 
       if (!existingMeal) {
-        return res.status(404).json({ error: "Meal not found or access denied" });
+        return sendError(res, 404, ErrorCodes.NOT_FOUND, "Meal not found or access denied");
       }
 
       // Build update object with explicit field handling
@@ -966,6 +1012,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "User not found" });
       }
 
+      // 擴展用戶類型以包含 TDEE 相關字段（這些字段在實際使用中存在但不在類型定義中）
+      type UserWithTDEE = typeof user & {
+        heightCm?: string | null;
+        currentWeightKg?: string | null;
+        bmr?: string | null;
+        tdee?: string | null;
+        goalCalories?: number | null;
+        activityLevel?: string | null;
+        goalType?: string | null;
+        proteinG?: number | null;
+        carbsG?: number | null;
+        fatG?: number | null;
+        age?: number | null;
+        gender?: string | null;
+      };
+      const userWithTDEE = user as UserWithTDEE;
+
       // Map backend activity level to frontend format
       const mapBackendActivityLevel = (level: string | null): string | null => {
         if (!level) return null;
@@ -992,11 +1055,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return "maintain";
       };
 
-      const height = user.heightCm ? parseFloat(user.heightCm) : null;
-      const weight = user.currentWeightKg ? parseFloat(user.currentWeightKg) : null;
-      const bmr = user.bmr ? parseFloat(user.bmr) : null;
-      const tdee = user.tdee ? parseFloat(user.tdee) : null;
-      const goalCalories = user.goalCalories || null;
+      const height = userWithTDEE.heightCm ? parseFloat(userWithTDEE.heightCm) : null;
+      const weight = userWithTDEE.currentWeightKg ? parseFloat(userWithTDEE.currentWeightKg) : null;
+      const bmr = userWithTDEE.bmr ? parseFloat(userWithTDEE.bmr) : null;
+      const tdee = userWithTDEE.tdee ? parseFloat(userWithTDEE.tdee) : null;
+      const goalCalories = userWithTDEE.goalCalories || null;
 
       // Calculate BMI
       let bmi: number | null = null;
@@ -1009,26 +1072,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let proteinRatio = 0;
       let carbsRatio = 0;
       let fatRatio = 0;
-      if (goalCalories && user.proteinG && user.carbsG && user.fatG) {
-        proteinRatio = (user.proteinG * 4 / goalCalories) * 100;
-        carbsRatio = (user.carbsG * 4 / goalCalories) * 100;
-        fatRatio = (user.fatG * 9 / goalCalories) * 100;
+      if (goalCalories && userWithTDEE.proteinG && userWithTDEE.carbsG && userWithTDEE.fatG) {
+        proteinRatio = (userWithTDEE.proteinG * 4 / goalCalories) * 100;
+        carbsRatio = (userWithTDEE.carbsG * 4 / goalCalories) * 100;
+        fatRatio = (userWithTDEE.fatG * 9 / goalCalories) * 100;
       }
 
       res.json({
-        age: user.age,
-        gender: user.gender as 'male' | 'female' | null,
+        age: userWithTDEE.age || null,
+        gender: (userWithTDEE.gender?.toLowerCase() as 'male' | 'female' | null) || null,
         height,
         weight,
-        activityLevel: mapBackendActivityLevel(user.activityLevel),
-        goal: mapBackendGoalType(user.goalType, goalCalories, tdee),
+        activityLevel: mapBackendActivityLevel(userWithTDEE.activityLevel || null),
+        goal: mapBackendGoalType(userWithTDEE.goalType || null, goalCalories, tdee),
         bmr,
         tdee,
         bmi: bmi ? Math.round(bmi * 10) / 10 : null,
         targetCalories: goalCalories,
-        targetProtein: user.proteinG || null,
-        targetCarbs: user.carbsG || null,
-        targetFat: user.fatG || null,
+        targetProtein: userWithTDEE.proteinG || null,
+        targetCarbs: userWithTDEE.carbsG || null,
+        targetFat: userWithTDEE.fatG || null,
         proteinRatio: Math.round(proteinRatio),
         carbsRatio: Math.round(carbsRatio),
         fatRatio: Math.round(fatRatio),
@@ -1052,13 +1115,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "User not found" });
       }
 
+      // 擴展用戶類型以包含 TDEE 相關字段
+      type UserWithTDEE = typeof user & {
+        goalCalories?: number | null;
+        proteinG?: number | null;
+        carbsG?: number | null;
+        fatG?: number | null;
+      };
+      const userWithTDEE = user as UserWithTDEE;
+
       const today = format(new Date(), "yyyy-MM-dd");
       const summary = await storage.getDailySummary(userId, new Date(today));
 
-      const targetCalories = user.goalCalories || 0;
-      const targetProtein = user.proteinG || 0;
-      const targetCarbs = user.carbsG || 0;
-      const targetFat = user.fatG || 0;
+      const targetCalories = userWithTDEE.goalCalories || 0;
+      const targetProtein = userWithTDEE.proteinG || 0;
+      const targetCarbs = userWithTDEE.carbsG || 0;
+      const targetFat = userWithTDEE.fatG || 0;
 
       const consumed = {
         calories: summary?.totalCalories || 0,

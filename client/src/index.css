@@ -166,10 +166,6 @@
 }
 
 @layer base {
-  * {
-    @apply border-border;
-  }
-
   body {
     @apply font-sans antialiased bg-background text-foreground;
   }
@@ -212,9 +208,15 @@
   /* .no-default-hover-elevate/no-default-active-elevate is an escape hatch so consumers of
    * buttons/badges can remove the automatic brightness adjustment on interactions
    * and program their own. */
-  .no-default-hover-elevate {}
+  .no-default-hover-elevate {
+    /* Intentionally empty - used as a marker class for :not() selectors */
+    display: inherit;
+  }
 
-  .no-default-active-elevate {}
+  .no-default-active-elevate {
+    /* Intentionally empty - used as a marker class for :not() selectors */
+    display: inherit;
+  }
 
 
   /**

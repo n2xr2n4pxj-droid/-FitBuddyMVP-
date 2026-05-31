@@ -1,0 +1,1 @@
+ALTER TABLE "workout_routines" ADD COLUMN "deleted_at" timestamp with time zone;

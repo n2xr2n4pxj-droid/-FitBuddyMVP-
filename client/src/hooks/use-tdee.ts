@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { createQueryFn, apiRequest } from "@/lib/queryClient";
 
 export interface TDEEProfile {
   age: number | null;
@@ -62,6 +63,7 @@ export interface TodayProgress {
 export function useTDEEProfile() {
   return useQuery<TDEEProfile>({
     queryKey: ["/api/tdee/profile"],
+    queryFn: createQueryFn<TDEEProfile>(),
     retry: false,
   });
 }
@@ -72,18 +74,7 @@ export function useCalculateTDEE() {
 
   return useMutation({
     mutationFn: async (params: TDEECalculateParams) => {
-      const response = await fetch("/api/tdee/calculate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(params),
-        credentials: "include",
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to calculate TDEE");
-      }
-
-      return response.json();
+      return await apiRequest<TDEEProfile>("POST", "/api/tdee/calculate", params);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/tdee/profile"] });
@@ -96,6 +87,7 @@ export function useCalculateTDEE() {
 export function useTodayProgress() {
   return useQuery<TodayProgress>({
     queryKey: ["/api/tdee/today-progress"],
+    queryFn: createQueryFn<TodayProgress>(),
     refetchInterval: 30000, // Refetch every 30 seconds
   });
 }

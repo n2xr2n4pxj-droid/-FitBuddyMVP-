@@ -1,57 +1,76 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { normalizeApiError, request } from "./api-client";
 
-async function throwIfResNotOk(res: Response) {
-  if (!res.ok) {
-    const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
+// ========== 統一使用 Axios 的 Query Function ==========
+type UnauthorizedBehavior = "returnNull" | "throw";
+
+/**
+ * 創建一個使用 apiClient (Axios) 的 Query Function
+ * 所有 React Query hooks 應該使用這個函數來確保統一的錯誤處理和 token 刷新
+ */
+export const createQueryFn = <T>(options?: {
+  on401?: UnauthorizedBehavior;
+}): QueryFunction<T> => {
+  const unauthorizedBehavior = options?.on401 || "throw";
+  
+  return async ({ queryKey }) => {
+    // Query key 格式: ['/api/meals'] 或 ['/api/meals', '2026-01-05']
+    const url = queryKey.join("/") as string;
+    
+    try {
+      return await request.get<T>(url);
+    } catch (error: unknown) {
+      const apiError = normalizeApiError(error);
+      // 處理 401 錯誤
+      if (apiError.statusCode === 401) {
+        if (unauthorizedBehavior === "returnNull") {
+          return null as T;
+        }
+        // 否則拋出錯誤（會觸發 React Query 的錯誤處理）
+      }
+      throw apiError;
+    }
+  };
+};
+
+/**
+ * 統一的 API Request 函數（使用 Axios）
+ * 用於 mutations 和直接 API 調用
+ */
+export async function apiRequest<T = any>(
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE",
+  url: string,
+  data?: unknown
+): Promise<T> {
+  switch (method) {
+    case "GET":
+      return request.get<T>(url);
+    case "POST":
+      return request.post<T>(url, data);
+    case "PUT":
+      return request.put<T>(url, data);
+    case "PATCH":
+      return request.patch<T>(url, data);
+    case "DELETE":
+      return request.delete<T>(url);
+    default:
+      throw new Error(`Unsupported method: ${method}`);
   }
 }
 
-export async function apiRequest(
-  method: string,
-  url: string,
-  data?: unknown | undefined,
-): Promise<Response> {
-  const res = await fetch(url, {
-    method,
-    headers: data ? { "Content-Type": "application/json" } : {},
-    body: data ? JSON.stringify(data) : undefined,
-    credentials: "include",
-  });
-
-  await throwIfResNotOk(res);
-  return res;
-}
-
-type UnauthorizedBehavior = "returnNull" | "throw";
-export const getQueryFn: <T>(options: {
-  on401: UnauthorizedBehavior;
-}) => QueryFunction<T> =
-  ({ on401: unauthorizedBehavior }) =>
-  async ({ queryKey }) => {
-    const res = await fetch(queryKey.join("/") as string, {
-      credentials: "include",
-    });
-
-    if (unauthorizedBehavior === "returnNull" && res.status === 401) {
-      return null;
-    }
-
-    await throwIfResNotOk(res);
-    return await res.json();
-  };
-
+// ========== React Query Client 配置 ==========
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      queryFn: getQueryFn({ on401: "throw" }),
-      refetchInterval: false,
+      // 使用統一的 queryFn（通過 createQueryFn）
+      // 注意：這裡不設置默認 queryFn，讓每個 hook 明確指定
       refetchOnWindowFocus: false,
-      staleTime: Infinity,
-      retry: false,
+      staleTime: 5 * 60 * 1000, // 5 分鐘（數據在 5 分鐘內被認為是新鮮的）
+      retry: 1, // 失敗時重試 1 次
+      retryDelay: 1000, // 重試延遲 1 秒
     },
     mutations: {
-      retry: false,
+      retry: false, // Mutations 不重試
     },
   },
 });

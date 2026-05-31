@@ -4,6 +4,7 @@ import { cva, type VariantProps } from "class-variance-authority"
 import { X } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { toast as dispatchToast } from "@/hooks/use-toast"
 
 const ToastProvider = ToastPrimitives.Provider
 
@@ -124,4 +125,24 @@ export {
   ToastDescription,
   ToastClose,
   ToastAction,
+}
+
+// 統一給頁面層使用的簡易 API（error / warning / success）
+export const toast = {
+  error: (description: string) =>
+    dispatchToast({
+      title: "錯誤",
+      description,
+      variant: "destructive",
+    }),
+  warning: (description: string) =>
+    dispatchToast({
+      title: "提醒",
+      description,
+    }),
+  success: (description: string) =>
+    dispatchToast({
+      title: "成功",
+      description,
+    }),
 }

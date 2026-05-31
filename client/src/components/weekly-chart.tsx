@@ -4,6 +4,7 @@ import { Chart, registerables } from "chart.js";
 import type { WeeklySummary } from "@shared/schema";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format, parseISO } from "date-fns";
+import { createQueryFn } from "@/lib/queryClient";
 
 Chart.register(...registerables);
 
@@ -13,6 +14,7 @@ export function WeeklyChart() {
 
   const { data: weeklySummary, isLoading, isError } = useQuery<WeeklySummary>({
     queryKey: ["/api/summary/weekly"],
+    queryFn: createQueryFn<WeeklySummary>(),
   });
 
   useEffect(() => {

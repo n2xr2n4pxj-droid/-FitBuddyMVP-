@@ -1,6 +1,52 @@
-node_modules
-dist
+# Dependencies
+node_modules/
+dist/
+build/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+*.secret
+
+# 明確忽略各層級的 .env.local（防止意外提交）
+client/.env.local
+server/.env.local
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS
 .DS_Store
-server/public
-vite.config.ts.*
-*.tar.gz.env
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Replit configuration (may contain example patterns that trigger GitHub Push Protection)
+.config/replit/.semgrep/
+
+# Database
+*.db
+*.sqlite
+
+# Database backups
+*.sql
+!**/migrations/*.sql
+!**/drizzle/**/*.sql
+backups/
+*.backup
+*.bak
+
+# Build outputs
+*.tsbuildinfo
+
+# Husky should be tracked (不要忽略 .husky 目錄)
+!.husky/

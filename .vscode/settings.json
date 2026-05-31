@@ -3,5 +3,6 @@
   "typescript.tsserver.watchOptions": {
     "excludeDirectories": ["**/node_modules"]
   },
-  "typescript.preferences.includePackageJsonAutoImports": "off"
+  "typescript.preferences.includePackageJsonAutoImports": "off",
+  "css.lint.unknownAtRules": "ignore"
 }

@@ -1,23 +1,38 @@
-import { useQuery } from "@tanstack/react-query";
-import { getQueryFn } from "@/lib/queryClient";
-import type { User } from "@shared/schema";
+import { useAuthStore } from '@/store/auth.store';
 
-export function useAuth() {
-  const { data: user, isLoading, error } = useQuery<User | null>({
-    queryKey: ["/api/auth/user"],
-    queryFn: getQueryFn({ on401: "returnNull" }),
-    retry: false,
-    staleTime: 5 * 60 * 1000, // Consider data fresh for 5 minutes
-  });
-
-  // User is authenticated if the API returned a non-null user object
-  // The endpoint returns null for unauthenticated users
-  // If there's an error (other than 401), treat as not authenticated
-  const isAuthenticated = !error && user !== null && user !== undefined;
+export const useAuth = () => {
+  const store = useAuthStore();
+  const primaryRole = (store.user?.roles?.[0] ?? 'client').toLowerCase();
+  const normalizedRole = primaryRole === 'coach' || primaryRole === 'both' ? 'COACH' : 'USER';
+  const userForLegacy = store.user
+    ? {
+        ...store.user,
+        role: normalizedRole as 'USER' | 'COACH',
+      }
+    : null;
 
   return {
-    user: user || null,
-    isLoading,
-    isAuthenticated,
+    token: store.token,
+    user: userForLegacy,
+    isAuthenticated: store.isAuthenticated,
+    isLoggedIn: store.isAuthenticated,
+    isAuthLoading: store.isAuthLoading,
+    registrationComplete: store.registrationComplete,
+    error: store.error,
+    needsVerification: store.needsVerification,
+
+    // Compatibility Layer
+    isLoading: store.isAuthLoading,
+    role: normalizedRole,
+    register: store.register,
+    selectRole: store.selectRole,
+    initializeAuth: store.initializeAuth,
+
+    hasRole: (role: string) => store.user?.roles?.includes(role) ?? false,
+
+    login: store.login,
+    loginWithOAuth: store.loginWithOAuth,
+    logout: store.logout,
+    fetchMe: store.fetchMe,
   };
-}
+};

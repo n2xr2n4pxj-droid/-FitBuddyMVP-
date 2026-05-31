@@ -11,7 +11,7 @@ import type { Meal, InsertMeal } from "@shared/schema";
 export type { Meal, InsertMeal };
 
 /**
- * Food search result from USDA API
+ * Food search result from food search API
  */
 export type FoodSearchResult = {
   fdcId: number;

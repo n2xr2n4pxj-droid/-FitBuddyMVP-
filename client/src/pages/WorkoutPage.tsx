@@ -204,7 +204,7 @@ export function WorkoutPage() {
     setWeightUnit(exerciseData?.weightUnit || workout.weight_unit || 'kg');
     setNotes(workout.notes || '');
     setPerformedAt(new Date(workout.performed_at).toISOString().split('T')[0]);
-    setEditingId(workout.id);
+    setEditingId(typeof workout.id === 'number' ? workout.id : parseInt(workout.id, 10) || null);
     setShowForm(true);
   };
 
@@ -540,7 +540,7 @@ export function WorkoutPage() {
                           </p>
                         </div>
 
-                        {workout.calories > 0 && (
+                        {workout.calories && workout.calories > 0 && (
                           <div className="bg-red-50 rounded-lg p-2">
                             <p className="text-xs text-gray-600">卡路里</p>
                             <p className="font-semibold text-red-600">
@@ -587,7 +587,7 @@ export function WorkoutPage() {
                         <span className="hidden sm:inline">編輯</span>
                       </button>
                       <button
-                        onClick={() => handleDelete(workout.id)}
+                        onClick={() => handleDelete(typeof workout.id === 'number' ? workout.id : parseInt(String(workout.id), 10))}
                         className="flex-1 sm:flex-none px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors flex items-center justify-center gap-2"
                       >
                         <Trash2 size={16} />

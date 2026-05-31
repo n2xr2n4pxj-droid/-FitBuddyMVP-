@@ -1,0 +1,112 @@
+name: Security Gate
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 20 * * *" # UTC 20:00 = HKT 04:00
+  workflow_dispatch:
+
+jobs:
+  # Fast gate: required on PR/push
+  security-check:
+    name: Security Gate (Fast)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    env:
+      RATE_LIMIT_ENABLED: "true"
+      NODE_ENV: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci --omit=optional
+
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
+      - name: TypeScript check
+        run: npm run check
+
+      - name: Security validation (7.4)
+        run: npm run validate:7.4
+
+  # Slow suite: schedule/manual/PR label
+  security-e2e:
+    name: Security E2E (Slow)
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       contains(github.event.pull_request.labels.*.name, 'run-security-e2e'))
+    env:
+      RATE_LIMIT_ENABLED: "true"
+      NODE_ENV: test
+      PORT: "3000"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci --omit=optional
+
+      - name: Build
+        run: npm run build
+
+      # Start API server in test mode (avoid production env guard failures)
+      - name: Start API server
+        run: |
+          NODE_ENV=test PORT=${PORT} node dist/index.js &
+          echo "SERVER_PID=$!" >> "$GITHUB_ENV"
+
+      - name: Wait for API server
+        run: |
+          echo "Waiting for server on port ${PORT}..."
+          for i in $(seq 1 30); do
+            if curl -sf "http://localhost:${PORT}/health" > /dev/null 2>&1; then
+              elapsed=$((i * 2))
+              echo "✅ Server ready after ~${elapsed}s"
+              exit 0
+            fi
+            echo "  attempt ${i}/30..."
+            sleep 2
+          done
+          echo "❌ Server did not start within ~60s"
+          exit 1
+
+      - name: Security E2E tests
+        run: npm run test:security:e2e
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-e2e-results-${{ github.run_id }}
+          path: |
+            test-results/
+            coverage/
+          retention-days: 30
+          if-no-files-found: ignore
+
+      - name: Stop API server
+        if: always()
+        run: |
+          if [[ -n "${SERVER_PID:-}" ]]; then
+            kill "${SERVER_PID}" 2>/dev/null || true
+          fi

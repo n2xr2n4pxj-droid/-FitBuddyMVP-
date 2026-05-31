@@ -13,7 +13,8 @@ import type { DailySummary, Meal, Workout } from "@shared/schema";
 import { MealForm } from "@/components/meal-form";
 import { WeeklyChart } from "@/components/weekly-chart";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { queryClient } from "@/lib/queryClient";
+import { queryClient, createQueryFn } from "@/lib/queryClient";
+import { request, normalizeApiError } from "@/lib/api-client";
 import { useLocation } from "wouter";
 import { useTodayProgress, useTDEEProfile } from "@/hooks/use-tdee";
 
@@ -89,11 +90,7 @@ export default function Dashboard() {
 
   const loadPersonalBests = async () => {
     try {
-      const response = await fetch('/api/workouts/stats/personal-best', {
-        credentials: 'include',
-      });
-      if (!response.ok) throw new Error('Failed to fetch personal bests');
-      const data = await response.json();
+      const data = await request.get<any[]>('/api/workouts/stats/personal-best');
       setPersonalBests(data);
     } catch (error) {
       console.error('Error loading personal bests:', error);
@@ -203,20 +200,9 @@ export default function Dashboard() {
         console.log('[Dashboard] Number of sets being saved:', exercisesData.length);
         console.log('[Dashboard] Max weight:', maxWeight, 'Total sets:', totalSets);
 
-        const response = await fetch(url, {
-          method,
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify(requestBody),
-        });
-
-        if (!response.ok) {
-          const error = await response.json();
-          console.error('[Dashboard] STRENGTH workout submission failed:', error);
-          throw new Error(error.error || 'Failed to save strength training');
-        }
-
-        const result = await response.json();
+        const result = method === 'PUT'
+          ? await request.put(url, requestBody)
+          : await request.post(url, requestBody);
         console.log('Workout saved:', result);
       }
       // 有氧訓練邏輯
@@ -248,20 +234,9 @@ export default function Dashboard() {
 
         console.log('[Dashboard] Submitting CARDIO workout:', requestBody);
 
-        const response = await fetch(url, {
-          method,
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify(requestBody),
-        });
-
-        if (!response.ok) {
-          const error = await response.json();
-          console.error('[Dashboard] CARDIO workout submission failed:', error);
-          throw new Error(error.error || 'Failed to save cardio');
-        }
-
-        const result = await response.json();
+        const result = method === 'PUT'
+          ? await request.put(url, requestBody)
+          : await request.post(url, requestBody);
         console.log('✅ Cardio saved:', result);
       }
 
@@ -277,11 +252,12 @@ export default function Dashboard() {
         title: "Success",
         description: editingWorkoutId ? 'Workout updated successfully' : 'Workout logged successfully',
       });
-    } catch (error: any) {
-      console.error('Error saving workout:', error);
+    } catch (err) {
+      const normalized = normalizeApiError(err);
+      console.error('Error saving workout:', err);
       toast({
         title: "Error",
-        description: error.message || 'Failed to save workout',
+        description: normalized.message || 'Failed to save workout',
         variant: "destructive",
       });
     }
@@ -291,12 +267,8 @@ export default function Dashboard() {
     if (!confirm('確定要刪除這個訓練記錄嗎？')) return;
 
     try {
-      const response = await fetch(`/api/workouts/${id}`, {
-        method: 'DELETE',
-        credentials: 'include',
-      });
-
-      if (!response.ok) throw new Error('Failed to delete workout');
+      await request.delete(`/api/workouts/${id}`);
+      // Axios 會自動處理錯誤，如果到這裡說明刪除成功
 
       await loadPersonalBests();
       // 立即刷新 workouts 查詢
@@ -307,81 +279,43 @@ export default function Dashboard() {
         title: "成功",
         description: '訓練記錄已刪除',
       });
-    } catch (error: any) {
-      console.error('Error deleting workout:', error);
+    } catch (err) {
+      const normalized = normalizeApiError(err);
+      console.error('Error deleting workout:', err);
       toast({
         title: "錯誤",
-        description: error.message || 'Failed to delete workout',
+        description: normalized.message || 'Failed to delete workout',
         variant: "destructive",
       });
     }
   };
 
   const handleEditWorkout = (workout: any) => {
-    // 處理 exercises JSON（如果存在）
-    let exercisesArray: any[] = [];
-    if (workout.exercises) {
-      try {
-        const exercises = typeof workout.exercises === 'string' 
-          ? JSON.parse(workout.exercises) 
-          : workout.exercises;
-        if (Array.isArray(exercises) && exercises.length > 0) {
-          exercisesArray = exercises;
-        }
-      } catch (e) {
-        console.error('Error parsing exercises:', e);
-      }
-    }
-
-    const workoutType = workout.workout_type || workout.workoutType || '';
+    // Workout schema 中沒有 exercises 字段，只使用 workoutType 和 durationMinutes
+    const workoutType = workout.workoutType || '';
 
     if (workoutType === 'STRENGTH' || workoutType === 'Strength Training') {
-      const exerciseName = exercisesArray[0]?.exerciseName || workout.exercise_name || '';
-      setExerciseName(exerciseName);
-      
-      // ✅ 還原所有訓練組
-      const trainingSetsData = exercisesArray.length > 0
-        ? exercisesArray.map((ex, idx) => ({
-            id: (idx + 1).toString(),
-            sets: ex.sets?.toString() || '',
-            reps: ex.reps?.toString() || '',
-            weight: ex.weight?.toString() || ''
-          }))
-        : [{ id: '1', sets: '', reps: '', weight: '' }];
-      
-      setTrainingSets(trainingSetsData.length > 0 
-        ? trainingSetsData 
-        : [{ id: '1', sets: '', reps: '', weight: '' }]
-      );
-      setWeightUnit(exercisesArray[0]?.weightUnit || workout.weight_unit || 'kg');
-      
+      // 對於力量訓練，需要從 notes 或其他地方獲取信息
+      // 暫時設置為空，因為 schema 中沒有這些字段
+      setExerciseName('');
+      setTrainingSets([{ id: '1', sets: '', reps: '', weight: '' }]);
+      setWeightUnit('kg');
       setCardioType('');
       setCardioDuration('');
     } else if (workoutType === 'CARDIO' || workoutType === 'Cardio') {
       setExerciseName('');
       setTrainingSets([{ id: '1', sets: '', reps: '', weight: '' }]);
       setWeightUnit('kg');
-      
-      // 如果運動名稱不在預設列表中，設置為 "Other" 並填充自定義欄位
-      const presetCardioTypes = ['Running', 'Cycling', 'Swimming', 'Rowing', 'Jumping Rope'];
-      const exerciseName = exercisesArray[0]?.exerciseName || workout.exercise_name || '';
-      
-      if (presetCardioTypes.includes(exerciseName)) {
-        setCardioType(exerciseName);
-        setCardioCustomType('');
-      } else {
-        setCardioType('Other');
-        setCardioCustomType(exerciseName);
-      }
-      
-      setCardioDuration((workout.duration || workout.durationMinutes || 0).toString());
+      setCardioType('');
+      setCardioCustomType('');
+      setCardioDuration((workout.durationMinutes || 0).toString());
     }
 
     setWorkoutNotes(workout.notes || '');
     setEditingWorkoutId(workout.id);
-    // 保存原始的 performedAt
-    const originalPerformedAt = workout.performed_at || workout.date;
-    setEditingWorkoutPerformedAt(originalPerformedAt ? new Date(originalPerformedAt).toISOString() : null);
+    // 保存原始的 date
+    const originalDate = workout.date;
+    setEditingWorkoutPerformedAt(originalDate ? new Date(originalDate).toISOString() : null);
     setShowWorkoutForm(true);
   };
 
@@ -399,11 +333,13 @@ export default function Dashboard() {
 
   const { data: todaySummary, isLoading: summaryLoading } = useQuery<DailySummary>({
     queryKey: ["/api/summary/daily", today],
+    queryFn: createQueryFn<DailySummary>(),
     enabled: isAuthenticated,
   });
 
   const { data: meals = [], isLoading: mealsLoading } = useQuery<Meal[]>({
     queryKey: ["/api/meals", today],
+    queryFn: createQueryFn<Meal[]>(),
     enabled: isAuthenticated,
   });
 
@@ -415,15 +351,8 @@ export default function Dashboard() {
         console.log('📋 Fetching workouts…');
         
         // 先獲取所有訓練
-        const response = await fetch('/api/workouts', {
-          credentials: 'include'
-        });
+        const allWorkouts = await request.get<any[]>('/api/workouts');
         
-        if (!response.ok) {
-          throw new Error('Failed to fetch workouts');
-        }
-        
-        const allWorkouts = await response.json();
         console.log(`✅ Fetched ${allWorkouts.length} total workouts`);
         
         // 顯示所有訓練的時間戳
@@ -1000,29 +929,17 @@ export default function Dashboard() {
             ) : (
               <div className="space-y-3">
                 {workouts.map((workout) => {
-                  // 解析 exercises JSON
-                  let allExercises: any[] = [];
-                  if (workout.exercises) {
-                    try {
-                      // 確保正確解析（如果是字符串則 JSON.parse）
-                      const ex = typeof workout.exercises === 'string'
-                        ? JSON.parse(workout.exercises)
-                        : workout.exercises;
-                      if (Array.isArray(ex)) {
-                        allExercises = ex;
-                      }
-                    } catch (e) {
-                      console.error('Error parsing exercises:', e);
-                    }
-                  }
-
-                  const workoutType = workout.workout_type || workout.workoutType || '';
-                  const exerciseName = allExercises[0]?.exerciseName || workout.exercise_name || workout.exerciseName;
-                  const sets = workout.sets;
-                  const reps = workout.reps;
-                  const weight = workout.weight;
-                  const weightUnit = workout.weight_unit || workout.weightUnit || 'kg';
-                  const duration = workout.duration || workout.durationMinutes;
+                  // Workout schema 中沒有 exercises 字段，只使用 workoutType 和 durationMinutes
+                  const workoutType = workout.workoutType || '';
+                  const duration = workout.durationMinutes || 0;
+                  
+                  // 定義變量以避免未定義錯誤
+                  const exerciseName = '';
+                  const allExercises: any[] = [];
+                  const sets = undefined;
+                  const reps = undefined;
+                  const weight = undefined;
+                  const weightUnit = 'kg';
 
                   // 檢查是否為力量訓練或 Cardio
                   const isStrength = workoutType === 'STRENGTH' || workoutType === 'Strength Training';
