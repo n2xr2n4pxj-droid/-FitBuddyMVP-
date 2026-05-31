@@ -1,0 +1,10 @@
+{
+  "extends": "../tsconfig.json",
+  "include": ["./**/*.ts"],
+  "exclude": [],
+  "compilerOptions": {
+    "types": ["node", "vitest", "supertest"],
+    "moduleResolution": "node",
+    "noEmit": true
+  }
+}

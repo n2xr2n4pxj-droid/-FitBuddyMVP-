@@ -6,8 +6,8 @@
 
 import { Response } from "express";
 import { randomUUID } from "crypto";
-import type { ErrorCode } from "@shared/error-codes";
-import type { ApiErrorPayload } from "@shared/types/api";
+import type { ErrorCode } from "../../shared/error-codes";
+import type { ApiErrorPayload } from "../../shared/types/api";
 
 /**
  * Sends a standardized successful JSON response.
