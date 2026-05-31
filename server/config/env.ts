@@ -92,7 +92,7 @@ export const config = {
   jwt: {
     secret: getEnv('JWT_SECRET', ''),
     refreshSecret: getEnv('REFRESH_TOKEN_SECRET', ''),
-    accessTokenExpiration: getEnv('ACCESS_TOKEN_EXPIRATION', '7d'),
+    accessTokenExpiration: getEnv('ACCESS_TOKEN_EXPIRATION', '60m'),
     refreshTokenExpiration: getEnv('REFRESH_TOKEN_EXPIRATION', '30d'),
   },
 

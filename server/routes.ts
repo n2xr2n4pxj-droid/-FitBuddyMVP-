@@ -1,6 +1,5 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
-import { rateLimit } from "express-rate-limit";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 import { meals } from "./db/schema";
@@ -9,7 +8,6 @@ import { format } from "date-fns";
 import { calculateTDEE, calculateMacros } from "./tdee";
 import { db } from "./db";
 import { eq, and } from "drizzle-orm";
-import { config } from "./config/env";
 import workoutRoutes from "./routes/workouts";
 import coachRoutes from "./routes/coaches";
 import coachClientRoutes from "./routes/coach-client";
@@ -29,19 +27,7 @@ import analyticsRoutes from "./routes/analytics";
 import nutritionRoutes from "./routes/nutrition";
 import { sendError } from "./lib/response";
 import { ErrorCodes } from "@shared/error-codes";
-
-// ==========================================
-// 速率限制：防止暴力破解 / 帳號枚舉
-// 每 IP 在 15 分鐘內最多呼叫 20 次，開發環境自動跳過
-// ==========================================
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 20,
-  standardHeaders: "draft-7",
-  legacyHeaders: false,
-  message: { error: "TOO_MANY_REQUESTS", message: "請求過於頻繁，請 15 分鐘後再試" },
-  skip: () => config.app.env === "development",
-});
+import { loginLimiter, registerLimiter } from "./middleware/rateLimiter";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
@@ -56,9 +42,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/v1/users", usersV1PublicRoutes);
 
   // Register auth routes（登入/註冊/忘記密碼加速率限制）
-  app.use("/api/auth/login", authLimiter);
-  app.use("/api/auth/register", authLimiter);
-  app.use("/api/auth/forgot-password", authLimiter);
+  app.use("/api/auth/login", loginLimiter);
+  app.use("/api/auth/register", registerLimiter);
+  app.use("/api/auth/forgot-password", registerLimiter);
   app.use("/api", authRoutes);
 
   // Register workout routes

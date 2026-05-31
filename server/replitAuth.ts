@@ -441,7 +441,7 @@ export function generateJWT(user: { id: string; email: string; role?: string }):
     role: user.role || 'client',
   };
   
-  const expiresIn = config.jwt.accessTokenExpiration || '7d';
+  const expiresIn = config.jwt.accessTokenExpiration || "60m";
   // 確保 expiresIn 是字符串類型
   return jwt.sign(payload, JWT_SECRET, {
     expiresIn: expiresIn as any, // 從配置讀取（類型兼容性）
@@ -469,8 +469,6 @@ export const verifyJWT: RequestHandler = async (req: any, res, next) => {
     console.log('[verifyJWT] ===== START =====');
     console.log('[verifyJWT] Request path:', req.path);
     console.log('[verifyJWT] Request method:', req.method);
-    console.log('[verifyJWT] Has authorization header:', !!req.headers.authorization);
-    console.log('[verifyJWT] Authorization header:', req.headers.authorization ? req.headers.authorization.substring(0, 20) + '...' : 'none');
     console.log('[verifyJWT] Has session:', !!req.session);
     console.log('[verifyJWT] Is authenticated (session):', req.isAuthenticated ? req.isAuthenticated() : false);
 

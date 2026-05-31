@@ -29,6 +29,7 @@ import { verifyJWT } from '../replitAuth';
 import { config } from '../config/env';
 import { sendError } from '../lib/response';
 import { ErrorCodes } from '@shared/error-codes';
+import { invitationLimiter } from "../middleware/rateLimiter";
 
 const router = Router();
 
@@ -149,7 +150,7 @@ router.post('/', verifyJWT, async (req: any, res: any) => {
  * POST /send
  * 教練發送邀請
  */
-router.post('/send', authMiddleware, coachOnly, async (req: any, res: any) => {
+router.post('/send', authMiddleware, coachOnly, invitationLimiter, async (req: any, res: any) => {
   try {
     const { client_email, client_name, notes } = req.body;
     const coachId = req.user?.id || req.user?.claims?.sub;
@@ -205,6 +206,8 @@ router.get('/status/:code', async (req: any, res: any) => {
     res.json(result);
   } catch (error: any) {
     console.error('❌ [API] Error getting invitation status:', error);
+    const st = (error as any)?.status;
+    if (st && st < 500) return sendError(res, st, ErrorCodes.NOT_FOUND, (error as any).message);
     return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, '獲取邀請狀態失敗');
   }
 });
@@ -348,6 +351,8 @@ router.delete('/:invitationId', authMiddleware, coachOnly, async (req: any, res:
     res.json(result);
   } catch (error: any) {
     console.error('❌ [API] Error canceling invitation:', error);
+    const st = (error as any)?.status;
+    if (st && st < 500) return sendError(res, st, ErrorCodes.NOT_FOUND, (error as any).message);
     return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, '撤銷邀請失敗');
   }
 });
@@ -488,6 +493,8 @@ router.delete('/templates/:templateId', authMiddleware, coachOnly, async (req: a
     res.json(result);
   } catch (error: any) {
     console.error('❌ [API] Error deleting template:', error);
+    const st = (error as any)?.status;
+    if (st && st < 500) return sendError(res, st, ErrorCodes.NOT_FOUND, (error as any).message);
     return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, '刪除模板失敗');
   }
 });

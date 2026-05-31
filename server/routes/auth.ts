@@ -63,7 +63,7 @@ interface TokenPayload {
 }
 
 const generateAccessToken = (payload: TokenPayload) => {
-  const expiresIn: string | number = ACCESS_TOKEN_EXPIRATION || '7d';
+  const expiresIn: string | number = ACCESS_TOKEN_EXPIRATION || "60m";
   return jwt.sign(payload, JWT_SECRET, {
     expiresIn,
   } as SignOptions);
