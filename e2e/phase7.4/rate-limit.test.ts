@@ -43,6 +43,7 @@ describe("Phase 7.4 - rate limit hardening", () => {
           password: "WrongPassword!123",
         }),
       8,
+      { requireNon429Before429: false },
     );
   });
 

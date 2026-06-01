@@ -260,6 +260,37 @@ else
   echo "$S7D_SENSITIVE"
 fi
 
+header "S4 — 認證與限流防線（E2E）"
+
+TEST_BASE_URL="${TEST_BASE_URL:-http://127.0.0.1:3000}"
+
+echo -e "\n${BOLD}[ S4a — API 健康檢查 ]${NC}"
+if curl -fsS "${TEST_BASE_URL}/health" >/dev/null 2>&1; then
+  pass "S4a API 可連線：${TEST_BASE_URL}"
+  S4_API_READY=1
+else
+  fail "S4a API 不可連線：${TEST_BASE_URL}（請先啟動後端）"
+  S4_API_READY=0
+fi
+
+if [[ "$S4_API_READY" -eq 1 ]]; then
+  echo -e "\n${BOLD}[ S4b — token hardening e2e ]${NC}"
+  if npx vitest run e2e/phase7.4/auth-token-hardening.test.ts --config vitest.e2e.config.ts --reporter=verbose >/dev/null 2>&1; then
+    pass "S4b token hardening e2e 通過"
+  else
+    fail "S4b token hardening e2e 失敗"
+  fi
+
+  echo -e "\n${BOLD}[ S4c — rate limit e2e ]${NC}"
+  if npx vitest run e2e/phase7.4/rate-limit.test.ts --config vitest.e2e.config.ts --reporter=verbose >/dev/null 2>&1; then
+    pass "S4c rate-limit e2e 通過"
+  else
+    fail "S4c rate-limit e2e 失敗"
+  fi
+else
+  warn "S4b/S4c 已略過（API 未就緒）"
+fi
+
 header "最終結果"
 echo
 echo -e "  ${GREEN}✅ PASS${NC}: ${PASS_COUNT}"

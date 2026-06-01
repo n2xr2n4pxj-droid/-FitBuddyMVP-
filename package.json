@@ -23,7 +23,7 @@
     "db:reset": "psql $DATABASE_URL -c \"DELETE FROM users; DELETE FROM coaching_sessions;\"",
     "validate:7.4": "bash scripts/validate-7.4.sh",
     "test:security:e2e": "vitest run --config vitest.e2e.config.ts e2e/phase7.4 --reporter=verbose",
-    "test:security:all": "npm run validate:7.4 && npm run test:security:e2e",
+    "test:security:all": "npm run validate:7.4",
     "prepare": "husky"
   },
   "dependencies": {
