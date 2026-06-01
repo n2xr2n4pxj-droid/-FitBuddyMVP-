@@ -522,14 +522,13 @@ case "schedule":
    - 先定最小 schema（`eventType/status/errorCode/logId/path`）再落地  
    - 這件最容易牽動既有 logger，放最後較穩
 
-4. **再進 P2（你列的 Step 1~4）**  
-   - 收斂剩餘 commit  
-   - 補 `e2e/phase7.4/*`（token + rate-limit）  
-   - 把 S4 接進 `validate-7.4.sh`  
-   - 更新 `0415ARCHITECTURE.md`（P1 completed / P2 in progress）
+4. **P1 completed / P2 in progress（更新）**  
+   - ✅ 收斂剩餘 commit（完成）  
+   - ✅ 補 `e2e/phase7.4/*`（token + rate-limit，完成）  
+   - ✅ 把 S4 接進 `validate-7.4.sh`（完成）  
+   - 🟡 更新 `0415ARCHITECTURE.md`（目前段落已更新，持續滾動維護）
 
-一句話結論：**先 P1（8→5a→7），再 P2**。  
-如果你同意，我下一步可以直接開始做 **件 8（CI 整合）**。
+一句話結論：**P1 已完成，P2 進行中（Step 1~3 已落地）**。
 
 ### 7.5 與 iOS App 上架關聯（為什麼 Phase 7 必做）
 
