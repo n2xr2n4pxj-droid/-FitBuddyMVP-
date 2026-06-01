@@ -490,6 +490,29 @@ case "schedule":
 1. **件 8 — CI 整合（完成）**  
    - `package.json` 加：`validate:7.4`、`test:security:e2e`、`test:security:all`  
    - 讓 CI 至少先跑 `npm run check && npm run validate:7.4`
+   - 未來 CI 設置可參考以下 GitHub Actions 片段（啟 API → 健康檢查 → 跑 security e2e → 收尾）：
+
+```yaml
+- name: Start API server
+  run: |
+    NODE_ENV=test PORT=3000 node dist/index.js &
+    echo "SERVER_PID=$!" >> $GITHUB_ENV
+
+- name: Wait for health
+  run: |
+    for i in {1..30}; do
+      curl -fsS http://127.0.0.1:3000/health && exit 0
+      sleep 1
+    done
+    echo "Server not ready" && exit 1
+
+- name: Run security e2e
+  run: npm run test:security:e2e
+
+- name: Stop API server
+  if: always()
+  run: kill $SERVER_PID || true
+```
 
 2. **件 5a — Helmet 安全標頭（完成）**  
    - 補 `X-Content-Type-Options`、`X-Frame-Options`、`Referrer-Policy`  
