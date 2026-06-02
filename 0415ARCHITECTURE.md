@@ -410,15 +410,15 @@ case "schedule":
   - E2E：`e2e/phase7.4/auth-token-hardening.test.ts`
   - 指令：`npx vitest run e2e/phase7.4/auth-token-hardening.test.ts`
 
-### 🟡 3) 授權邊界（ReBAC/RBAC）防線
+### ✅ 3) 授權邊界（ReBAC/RBAC）防線（已完成）
 - **實作**
   - 針對 `coach-client`、`plans`、`invitations` 建立未授權/跨帳號防護檢查。
 - **驗收測試**
   - 非本人/非教練操作應 `403`。
   - 已授權關係可正常 `200/201`。
 - **回歸腳本**
-  - E2E：`e2e/phase7.4/authorization-boundary.test.ts`
-  - 指令：`npx vitest run e2e/phase7.4/authorization-boundary.test.ts`
+  - E2E：`e2e/phase7.4/authorization-boundary.test.ts`、`e2e/phase7.4/authorization-plans.test.ts`、`e2e/phase7.4/authorization-coach-client.test.ts`、`e2e/phase7.4/authorization-workouts-sessions.test.ts`、`e2e/phase7.4/authorization-workouts-learner-access.test.ts`、`e2e/phase7.4/authorization-workouts-learner-detail.test.ts`、`e2e/phase7.4/authorization-analytics.test.ts`
+  - 指令：`npm run test:security:e2e`（全量） / `npm run validate:7.4`（總控）
 
 ### ✅ 4) 敏感資訊遮罩與錯誤最小揭露（已完成）
 - **實作**
@@ -526,7 +526,7 @@ case "schedule":
    - ✅ 收斂剩餘 commit（完成）  
    - ✅ 補 `e2e/phase7.4/*`（token + rate-limit，完成）  
    - ✅ 把 S4 接進 `validate-7.4.sh`（完成）  
-   - 🟡 新增 `authorization-boundary.test.ts`（`/api/invitations/share-token` 完成 401/403/200 驗收；其餘 ReBAC/RBAC 邊界持續補齊）  
+  - ✅ 授權邊界 e2e 全量補齊（`invitations/plans/coach-client/workouts/analytics`，含 `Double-ID BOLA` detail endpoint）  
    - 🟡 Error Contract 斷言分階段收斂：目前決策為「先不全面改嚴格斷言」，401 維持務實 `toBeDefined`；待 7.1 全面一致後再改為嚴格 `errorCode` 斷言  
    - 🟡 測試資料唯一性策略：目前 `seedActor` 採 `Date.now()+Math.random()`（MVP 可接受）；後續若 CI 併發提高，升級為 `crypto.randomUUID()` / `uuidv4()` 命名以降低碰撞風險  
    - 🟡 更新 `0415ARCHITECTURE.md`（目前段落已更新，持續滾動維護）
@@ -535,7 +535,7 @@ case "schedule":
 
 ## iOS 上線 4 週倒排甘特（記錄更新：2026-06-02）
 
-- **W1（安全防線）**：件 5、件 7、件 8 已完成；件 3 進行中（已補第一版授權邊界 e2e）。
+- **W1（安全防線）**：件 3、件 5、件 7、件 8 已完成（`validate:7.4` 與 `test:security:e2e` 全綠）。
 - **W2（7.2 路由與版本治理）**：盤點 `/api` vs `/api/v1` 與 deprecation 規範（待執行）；同步推進 7.1 錯誤契約斷言收斂（目前先維持寬鬆，後續再轉嚴格）。
 - **W3（7.3 效能與索引）**：高頻查詢 `EXPLAIN ANALYZE`、索引策略與回歸基線（待執行）。
 - **W4（上架收斂）**：回歸、監控觀測、上架與營運收尾（待執行）。
