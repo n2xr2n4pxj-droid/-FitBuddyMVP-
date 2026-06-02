@@ -459,7 +459,7 @@ case "schedule":
 - **回歸腳本**
   - `scripts/phase7.4/check-security-events.sh`
 
-### ⬜ 8) 總控守門（CI 可跑）
+### ✅ 8) 總控守門（CI 可跑）（已完成）
 - **實作**
   - 建立 `scripts/validate-7.4.sh`，串接所有檢查。
 - **驗收測試**
