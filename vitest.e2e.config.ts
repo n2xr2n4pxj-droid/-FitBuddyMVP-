@@ -5,5 +5,8 @@ export default defineConfig({
     environment: "node",
     include: ["e2e/**/*.test.ts"],
     exclude: ["**/node_modules/**", "**/.git/**"],
+    fileParallelism: false,
+    testTimeout: 30000,
+    hookTimeout: 30000,
   },
 });

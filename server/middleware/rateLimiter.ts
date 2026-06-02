@@ -1,4 +1,4 @@
-import { rateLimit, type Options } from "express-rate-limit";
+import { ipKeyGenerator, rateLimit, type Options } from "express-rate-limit";
 
 // RATE_LIMIT_ENABLED=false 可暫時關閉（預設開啟）
 // 跑 7.4 驗收測試前請確認此值不為 false。
@@ -39,7 +39,8 @@ export const invitationLimiter = rateLimit({
   ...base,
   windowMs: 60 * 60 * 1000,
   max: 10,
-  keyGenerator: (req: any) => req.user?.id ?? req.user?.claims?.sub ?? req.ip,
+  keyGenerator: (req: any) =>
+    req.user?.id ?? req.user?.claims?.sub ?? ipKeyGenerator(req.ip ?? ""),
   message: {
     success: false,
     errorCode: "RATE_LIMIT_EXCEEDED",
@@ -52,7 +53,8 @@ export const aiLimiter = rateLimit({
   ...base,
   windowMs: 60 * 1000,
   max: 20,
-  keyGenerator: (req: any) => req.user?.id ?? req.user?.claims?.sub ?? req.ip,
+  keyGenerator: (req: any) =>
+    req.user?.id ?? req.user?.claims?.sub ?? ipKeyGenerator(req.ip ?? ""),
   message: {
     success: false,
     errorCode: "RATE_LIMIT_EXCEEDED",

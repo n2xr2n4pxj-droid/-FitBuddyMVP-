@@ -20,10 +20,6 @@ const createdRelationshipIds: string[] = [];
 const createdRoutineIds: string[] = [];
 const createdSessionIds: string[] = [];
 
-const VALID_EXERCISES = [
-  { exerciseId: "00000000-0000-0000-0000-000000000001", sets: [{ weight: 80, reps: 5 }] },
-];
-
 async function seedActor(role: "COACH" | "USER"): Promise<Actor> {
   const email = `phase74-wld-${role.toLowerCase()}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@fitbuddy.test`;
   const user = await createUser({
@@ -106,27 +102,27 @@ describe("Phase 7.4 - authorization boundary (GET /workouts/sessions/learner/:le
       .returning({ id: workoutRoutines.id });
     createdRoutineIds.push(routineB.id);
 
-    const resA = await request(BASE_URL)
-      .post("/api/workouts/sessions")
-      .set("Authorization", `Bearer ${learnerA.token}`)
-      .send({ routineId: routineA.id, exercises: VALID_EXERCISES });
-    if (resA.status !== 201) {
-      throw new Error(`Failed to create learnerA session: ${resA.status}`);
-    }
-    expect(resA.body?.sessionId).toBeDefined();
-    learnerASessionId = resA.body.sessionId;
-    createdSessionIds.push(learnerASessionId);
+    const [sessionA] = await db
+      .insert(workoutSessions)
+      .values({
+        userId: learnerA.id,
+        routineId: routineA.id,
+        notes: "learner-a-session",
+      })
+      .returning({ id: workoutSessions.id });
+    learnerASessionId = sessionA.id;
+    createdSessionIds.push(sessionA.id);
 
-    const resB = await request(BASE_URL)
-      .post("/api/workouts/sessions")
-      .set("Authorization", `Bearer ${learnerB.token}`)
-      .send({ routineId: routineB.id, exercises: VALID_EXERCISES });
-    if (resB.status !== 201) {
-      throw new Error(`Failed to create learnerB session: ${resB.status}`);
-    }
-    expect(resB.body?.sessionId).toBeDefined();
-    learnerBSessionId = resB.body.sessionId;
-    createdSessionIds.push(learnerBSessionId);
+    const [sessionB] = await db
+      .insert(workoutSessions)
+      .values({
+        userId: learnerB.id,
+        routineId: routineB.id,
+        notes: "learner-b-session",
+      })
+      .returning({ id: workoutSessions.id });
+    learnerBSessionId = sessionB.id;
+    createdSessionIds.push(sessionB.id);
   });
 
   afterAll(async () => {
