@@ -528,6 +528,7 @@ case "schedule":
    - ✅ 把 S4 接進 `validate-7.4.sh`（完成）  
    - 🟡 新增 `authorization-boundary.test.ts`（`/api/invitations/share-token` 完成 401/403/200 驗收；其餘 ReBAC/RBAC 邊界持續補齊）  
    - 🟡 Error Contract 斷言分階段收斂：目前決策為「先不全面改嚴格斷言」，401 維持務實 `toBeDefined`；待 7.1 全面一致後再改為嚴格 `errorCode` 斷言  
+   - 🟡 測試資料唯一性策略：目前 `seedActor` 採 `Date.now()+Math.random()`（MVP 可接受）；後續若 CI 併發提高，升級為 `crypto.randomUUID()` / `uuidv4()` 命名以降低碰撞風險  
    - 🟡 更新 `0415ARCHITECTURE.md`（目前段落已更新，持續滾動維護）
 
 一句話結論：**P1 已完成，P2 進行中（Step 1~3 已落地）**。
