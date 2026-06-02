@@ -22,7 +22,8 @@
     "db:clean": "psql $DATABASE_URL -c \"DELETE FROM users;\"",
     "db:reset": "psql $DATABASE_URL -c \"DELETE FROM users; DELETE FROM coaching_sessions;\"",
     "validate:7.4": "bash scripts/validate-7.4.sh",
-    "test:security:e2e": "vitest run --config vitest.e2e.config.ts e2e/phase7.4 --reporter=verbose",
+    "test:security:e2e:precheck": "bash scripts/precheck-e2e-health.sh",
+    "test:security:e2e": "npm run test:security:e2e:precheck && TEST_BASE_URL=${TEST_BASE_URL:-http://127.0.0.1:3000} vitest run --config vitest.e2e.config.ts e2e/phase7.4 --reporter=verbose",
     "test:security:all": "npm run validate:7.4",
     "prepare": "husky"
   },

@@ -526,9 +526,18 @@ case "schedule":
    - ✅ 收斂剩餘 commit（完成）  
    - ✅ 補 `e2e/phase7.4/*`（token + rate-limit，完成）  
    - ✅ 把 S4 接進 `validate-7.4.sh`（完成）  
+   - 🟡 新增 `authorization-boundary.test.ts`（`/api/invitations/share-token` 完成 401/403/200 驗收；其餘 ReBAC/RBAC 邊界持續補齊）  
+   - 🟡 Error Contract 斷言分階段收斂：目前決策為「先不全面改嚴格斷言」，401 維持務實 `toBeDefined`；待 7.1 全面一致後再改為嚴格 `errorCode` 斷言  
    - 🟡 更新 `0415ARCHITECTURE.md`（目前段落已更新，持續滾動維護）
 
 一句話結論：**P1 已完成，P2 進行中（Step 1~3 已落地）**。
+
+## iOS 上線 4 週倒排甘特（記錄更新：2026-06-02）
+
+- **W1（安全防線）**：件 5、件 7、件 8 已完成；件 3 進行中（已補第一版授權邊界 e2e）。
+- **W2（7.2 路由與版本治理）**：盤點 `/api` vs `/api/v1` 與 deprecation 規範（待執行）；同步推進 7.1 錯誤契約斷言收斂（目前先維持寬鬆，後續再轉嚴格）。
+- **W3（7.3 效能與索引）**：高頻查詢 `EXPLAIN ANALYZE`、索引策略與回歸基線（待執行）。
+- **W4（上架收斂）**：回歸、監控觀測、上架與營運收尾（待執行）。
 
 ### 7.5 與 iOS App 上架關聯（為什麼 Phase 7 必做）
 
