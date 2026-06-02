@@ -260,7 +260,7 @@ else
   echo "$S7D_SENSITIVE"
 fi
 
-header "S4 — 認證與限流防線（E2E）"
+header "S4 — 認證、限流與授權邊界（E2E）"
 
 TEST_BASE_URL="${TEST_BASE_URL:-http://127.0.0.1:3000}"
 
@@ -274,21 +274,14 @@ else
 fi
 
 if [[ "$S4_API_READY" -eq 1 ]]; then
-  echo -e "\n${BOLD}[ S4b — token hardening e2e ]${NC}"
-  if npx vitest run e2e/phase7.4/auth-token-hardening.test.ts --config vitest.e2e.config.ts --reporter=verbose >/dev/null 2>&1; then
-    pass "S4b token hardening e2e 通過"
+  echo -e "\n${BOLD}[ S4b — phase7.4 全量 security e2e ]${NC}"
+  if npm run test:security:e2e >/dev/null 2>&1; then
+    pass "S4b phase7.4 全量 e2e 通過（含 token/rate-limit/ReBAC/RBAC）"
   else
-    fail "S4b token hardening e2e 失敗"
-  fi
-
-  echo -e "\n${BOLD}[ S4c — rate limit e2e ]${NC}"
-  if npx vitest run e2e/phase7.4/rate-limit.test.ts --config vitest.e2e.config.ts --reporter=verbose >/dev/null 2>&1; then
-    pass "S4c rate-limit e2e 通過"
-  else
-    fail "S4c rate-limit e2e 失敗"
+    fail "S4b phase7.4 全量 e2e 失敗"
   fi
 else
-  warn "S4b/S4c 已略過（API 未就緒）"
+  warn "S4b 已略過（API 未就緒）"
 fi
 
 header "最終結果"
