@@ -13,6 +13,7 @@ try {
 }
 
 import express, { type Request, Response, NextFunction } from "express";
+import cookieParser from "cookie-parser";
 import { createRequire } from "module";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
@@ -70,6 +71,7 @@ app.use(cors({
   credentials: config.cors.credentials,
 }));
 
+app.use(cookieParser());
 app.use(express.json({
   limit: "100kb",
   verify: (req: express.Request, _res, buf) => {

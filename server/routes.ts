@@ -45,6 +45,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use("/api/auth/login", loginLimiter);
   app.use("/api/auth/register", registerLimiter);
   app.use("/api/auth/forgot-password", registerLimiter);
+  app.use("/api/auth/reset-password", registerLimiter);
   app.use("/api", authRoutes);
 
   // Register workout routes

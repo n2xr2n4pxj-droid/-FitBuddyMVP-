@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { db, pool } from '../db';
 import { users, coachClients } from '../db/schema';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { hashPassword, verifyPassword, isAuthenticated, verifyJWT } from '../replitAuth';
 import jwt, { type SignOptions } from 'jsonwebtoken';
 import crypto from 'crypto';
@@ -60,6 +60,18 @@ interface TokenPayload {
   sub: string;
   email: string;
   role: string;
+  tv: number;
+}
+
+function tokenVersionOf(user: { tokenVersion?: number | null }): number {
+  return user.tokenVersion ?? 0;
+}
+
+async function bumpUserTokenVersion(userId: string): Promise<void> {
+  await db
+    .update(users)
+    .set({ tokenVersion: sql`${users.tokenVersion} + 1`, updatedAt: new Date() })
+    .where(eq(users.id, userId));
 }
 
 const generateAccessToken = (payload: TokenPayload) => {
@@ -69,12 +81,52 @@ const generateAccessToken = (payload: TokenPayload) => {
   } as SignOptions);
 };
 
-const generateRefreshToken = (userId: string) => {
+const generateRefreshToken = (userId: string, tv: number) => {
   const expiresIn: string | number = REFRESH_TOKEN_EXPIRATION || '30d';
-  return jwt.sign({ sub: userId }, REFRESH_TOKEN_SECRET, {
+  return jwt.sign({ sub: userId, tv }, REFRESH_TOKEN_SECRET, {
     expiresIn,
   } as SignOptions);
 };
+
+const REFRESH_COOKIE_NAME = 'fitbuddy_refresh_token';
+
+function refreshCookieMaxAgeMs(): number {
+  const exp = String(REFRESH_TOKEN_EXPIRATION || '30d');
+  const match = exp.match(/^(\d+)([dhms])$/);
+  if (!match) return 30 * 24 * 60 * 60 * 1000;
+  const value = Number(match[1]);
+  switch (match[2]) {
+    case 'd':
+      return value * 24 * 60 * 60 * 1000;
+    case 'h':
+      return value * 60 * 60 * 1000;
+    case 'm':
+      return value * 60 * 1000;
+    case 's':
+      return value * 1000;
+    default:
+      return 30 * 24 * 60 * 60 * 1000;
+  }
+}
+
+function refreshCookieOptions() {
+  const isProd = config.app.env === 'production';
+  return {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: 'lax' as const,
+    path: '/api/auth',
+    maxAge: refreshCookieMaxAgeMs(),
+  };
+}
+
+function setRefreshCookie(res: any, token: string) {
+  res.cookie(REFRESH_COOKIE_NAME, token, refreshCookieOptions());
+}
+
+function clearRefreshCookie(res: any) {
+  res.clearCookie(REFRESH_COOKIE_NAME, refreshCookieOptions());
+}
 
 // ==========================================
 // 角色工具函數
@@ -338,25 +390,28 @@ router.post('/auth/login', async (req: any, res: any) => {
 
     // 直接使用資料庫中的 role 值（'USER', 'COACH', 'ADMIN'）
     const userRole = normalizeRoleToUpperCase(user.role);
+    const tv = tokenVersionOf(user);
 
     // 生成 tokens
     const accessToken = generateAccessToken({
       sub: String(user.id),
       email: user.email || '',
       role: userRole,
+      tv,
     });
 
-    const refreshToken = generateRefreshToken(String(user.id));
+    const refreshToken = generateRefreshToken(String(user.id), tv);
 
     console.log('[POST /auth/login] Success:', { id: user.id, role: userRole });
 
     const { passwordHash, ...safeUser } = user as any;
 
+    setRefreshCookie(res, refreshToken);
+
     res.json({
       success: true,
       message: 'Login successful',
       token: accessToken,
-      refreshToken,
       user: {
         id: safeUser.id,
         email: safeUser.email,
@@ -525,6 +580,118 @@ router.post('/auth/forgot-password', async (req: any, res: any) => {
   }
 });
 
+// ==========================================
+// POST /auth/reset-password - 忘記密碼重設（JWT reset token）
+// ==========================================
+router.post('/auth/reset-password', async (req: any, res: any) => {
+  try {
+    const { token, password, newPassword } = req.body ?? {};
+    const nextPassword = typeof newPassword === 'string' ? newPassword : password;
+
+    if (!token || typeof token !== 'string') {
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, 'Reset token is required');
+    }
+    if (!nextPassword || typeof nextPassword !== 'string') {
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, 'New password is required');
+    }
+    if (nextPassword.length < 8) {
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, 'Password must be at least 8 characters');
+    }
+
+    let decoded: { sub?: string; type?: string; email?: string };
+    try {
+      decoded = jwt.verify(token, JWT_SECRET) as { sub?: string; type?: string; email?: string };
+    } catch (verifyErr: any) {
+      if (verifyErr.name === 'TokenExpiredError') {
+        return sendError(res, 401, ErrorCodes.AUTH_TOKEN_EXPIRED, 'Reset token expired');
+      }
+      return sendError(res, 401, ErrorCodes.AUTH_TOKEN_INVALID, 'Invalid reset token');
+    }
+
+    if (decoded.type !== 'password_reset' || !decoded.sub) {
+      return sendError(res, 401, ErrorCodes.AUTH_TOKEN_INVALID, 'Invalid reset token');
+    }
+
+    const userId = String(decoded.sub);
+    const user = await getUserById(userId);
+    if (!user) {
+      return sendError(res, 404, ErrorCodes.AUTH_USER_NOT_FOUND, 'User not found');
+    }
+
+    await db
+      .update(users)
+      .set({
+        passwordHash: hashPassword(nextPassword),
+        tokenVersion: sql`${users.tokenVersion} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, userId));
+
+    clearRefreshCookie(res);
+
+    return res.json({
+      success: true,
+      message: 'Password has been reset. Please log in again.',
+    });
+  } catch (error) {
+    console.error('[POST /auth/reset-password] Error:', error);
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, 'Failed to reset password');
+  }
+});
+
+// ==========================================
+// POST /auth/change-password - 已登入使用者改密碼
+// ==========================================
+router.post('/auth/change-password', verifyJWT, async (req: any, res: any) => {
+  try {
+    const userId = String(req.user?.id || req.user?.claims?.sub || '').trim();
+    if (!userId) {
+      return sendError(res, 401, ErrorCodes.UNAUTHORIZED, 'Not authenticated');
+    }
+
+    const { currentPassword, newPassword } = req.body ?? {};
+    if (!currentPassword || !newPassword) {
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, 'Current and new password are required');
+    }
+    if (typeof newPassword !== 'string' || newPassword.length < 8) {
+      return sendError(res, 400, ErrorCodes.VALIDATION_ERROR, 'Password must be at least 8 characters');
+    }
+
+    const [row] = await db
+      .select({ passwordHash: users.passwordHash })
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    if (!row?.passwordHash) {
+      return sendError(res, 404, ErrorCodes.AUTH_USER_NOT_FOUND, 'User not found');
+    }
+
+    if (!verifyPassword(String(currentPassword), row.passwordHash)) {
+      return sendError(res, 401, ErrorCodes.AUTH_INVALID_CREDENTIALS, 'Current password is incorrect');
+    }
+
+    await db
+      .update(users)
+      .set({
+        passwordHash: hashPassword(newPassword),
+        tokenVersion: sql`${users.tokenVersion} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, userId));
+
+    clearRefreshCookie(res);
+
+    return res.json({
+      success: true,
+      message: 'Password updated. Please log in again.',
+    });
+  } catch (error) {
+    console.error('[POST /auth/change-password] Error:', error);
+    return sendError(res, 500, ErrorCodes.INTERNAL_SERVER_ERROR, 'Failed to change password');
+  }
+});
+
 router.get('/test-resend', async (_req: any, res: any) => {
   try {
     console.log('⚡️ 準備強制呼叫 Resend...');
@@ -588,6 +755,7 @@ const handleRoleSelect = async (req: any, res: any) => {
 
     // 使用資料庫中實際存儲的 role 值
     const userRole = normalizeRoleToUpperCase(updatedUser.role);
+    const tv = tokenVersionOf(updatedUser);
 
     console.log('[SelectRole] ✅ Database updated:', { id: updatedUser.id, role: userRole });
 
@@ -596,15 +764,17 @@ const handleRoleSelect = async (req: any, res: any) => {
       sub: String(updatedUser.id),
       email: updatedUser.email || '',
       role: userRole,
+      tv,
     });
 
-    const refreshToken = generateRefreshToken(String(updatedUser.id));
+    const refreshToken = generateRefreshToken(String(updatedUser.id), tv);
+
+    setRefreshCookie(res, refreshToken);
 
     const response = {
       success: true,
       message: 'Role selected successfully',
       token: accessToken,
-      refreshToken,
       user: {
         id: updatedUser.id,
         email: updatedUser.email,
@@ -664,6 +834,8 @@ router.get('/auth/me', async (req: any, res: any) => {
       return sendError(res, 401, ErrorCodes.UNAUTHORIZED, 'Not authenticated');
     }
 
+    const tokenTv = typeof decoded.tv === 'number' ? decoded.tv : 0;
+
     console.log('[GET /auth/me] Looking up user by id...');
     
     // ✅ 修復：使用與 registration-status 相同的 SQL 查詢方式（直接查詢，支持 UUID）
@@ -678,7 +850,7 @@ router.get('/auth/me', async (req: any, res: any) => {
       // 查詢 users 表實際存在的欄位（與 server/db/schema.ts 對齊）
       const result = await pool.query(
         `SELECT id, email, first_name, last_name, role, avatar, created_at, updated_at,
-                age, gender, height, weight, activity_level, goal, tdee
+                age, gender, height, weight, activity_level, goal, tdee, token_version
          FROM users
          WHERE id = $1
          LIMIT 1`,
@@ -691,6 +863,16 @@ router.get('/auth/me', async (req: any, res: any) => {
       }
 
       const userData = result.rows[0];
+      const dbTv = Number(userData.token_version ?? 0);
+      if (tokenTv !== dbTv) {
+        console.log('[GET /auth/me] ❌ Token revoked (tokenVersion mismatch):', {
+          userId,
+          tokenTv,
+          dbTv,
+        });
+        return sendError(res, 401, ErrorCodes.AUTH_TOKEN_INVALID, 'Token has been revoked');
+      }
+
       user = {
         id: userData.id,
         email: userData.email,
@@ -796,7 +978,8 @@ router.get('/auth/me', async (req: any, res: any) => {
 // ==========================================
 router.post('/auth/refresh', async (req: any, res: any) => {
   try {
-    const { refreshToken } = req.body;
+    const refreshToken =
+      req.cookies?.[REFRESH_COOKIE_NAME] ?? req.body?.refreshToken;
 
     if (!refreshToken) {
       return sendError(res, 401, ErrorCodes.VALIDATION_ERROR, 'Refresh token required');
@@ -807,6 +990,7 @@ router.post('/auth/refresh', async (req: any, res: any) => {
     try {
       decoded = jwt.verify(refreshToken, REFRESH_TOKEN_SECRET);
     } catch (verifyErr: any) {
+      clearRefreshCookie(res);
       if (verifyErr.name === 'TokenExpiredError') {
         return sendError(res, 401, ErrorCodes.AUTH_TOKEN_EXPIRED, 'Refresh token expired');
       }
@@ -818,6 +1002,7 @@ router.post('/auth/refresh', async (req: any, res: any) => {
 
     const userId = decoded.sub;
     if (!userId) {
+      clearRefreshCookie(res);
       return sendError(res, 401, ErrorCodes.AUTH_TOKEN_INVALID, 'Invalid refresh token');
     }
 
@@ -825,7 +1010,15 @@ router.post('/auth/refresh', async (req: any, res: any) => {
     const user = await getUserById(userId);
 
     if (!user) {
+      clearRefreshCookie(res);
       return sendError(res, 401, ErrorCodes.AUTH_USER_NOT_FOUND, 'User not found');
+    }
+
+    const dbTv = tokenVersionOf(user);
+    const refreshTv = typeof decoded.tv === 'number' ? decoded.tv : 0;
+    if (refreshTv !== dbTv) {
+      clearRefreshCookie(res);
+      return sendError(res, 401, ErrorCodes.AUTH_TOKEN_INVALID, 'Refresh token revoked');
     }
 
     // 生成新的 access token
@@ -834,18 +1027,17 @@ router.post('/auth/refresh', async (req: any, res: any) => {
       sub: String(user.id),
       email: user.email || '',
       role: userRole,
+      tv: dbTv,
     });
 
-    // 企業級：可選的 Refresh Token Rotation（增強安全性）
-    // 生成新的 refresh token（舊的自動失效）
-    const newRefreshToken = generateRefreshToken(String(user.id));
+    const newRefreshToken = generateRefreshToken(String(user.id), dbTv);
+    setRefreshCookie(res, newRefreshToken);
 
     console.log(`[AUTH] Token refreshed for user ${user.id} at ${new Date().toISOString()}`);
 
     res.json({
       success: true,
       token: newAccessToken,
-      refreshToken: newRefreshToken, // 企業級：返回新的 refresh token
       expiresIn: 7 * 24 * 60 * 60, // 7 天（秒為單位）
     });
   } catch (error) {
@@ -859,6 +1051,21 @@ router.post('/auth/refresh', async (req: any, res: any) => {
 // ==========================================
 router.post('/auth/logout', async (req: any, res: any) => {
   try {
+    let userId: string | undefined;
+
+    const refreshFromCookie = req.cookies?.[REFRESH_COOKIE_NAME];
+    if (refreshFromCookie) {
+      const decoded = jwt.decode(refreshFromCookie) as { sub?: string } | null;
+      userId = decoded?.sub;
+    }
+    if (!userId) {
+      const authHeader = req.headers.authorization;
+      if (authHeader?.startsWith('Bearer ')) {
+        const decoded = jwt.decode(authHeader.slice(7)) as { sub?: string } | null;
+        userId = decoded?.sub;
+      }
+    }
+
     // 1) 清理 Passport session user 綁定（若存在）
     if (typeof req.logout === 'function') {
       await new Promise<void>((resolve) => {
@@ -891,7 +1098,17 @@ router.post('/auth/logout', async (req: any, res: any) => {
       path: '/',
     });
 
-    // 4) JWT 無狀態語意維持不變：前端仍需清 token
+    clearRefreshCookie(res);
+
+    if (userId) {
+      try {
+        await bumpUserTokenVersion(userId);
+      } catch (bumpErr) {
+        console.error('[logout] tokenVersion bump failed:', bumpErr);
+      }
+    }
+
+    // 4) JWT 無狀態語意維持不變：前端仍需清 access token
     return res.json({ success: true, message: 'Logged out successfully' });
   } catch (error) {
     console.error('Error logging out:', error);
@@ -1558,17 +1775,21 @@ router.post('/auth/google/callback', async (req: any, res: any) => {
     console.log('[POST /auth/google/callback] Generating JWT tokens...');
 
     const userRole = normalizeRoleToUpperCase(user.role);
+    const tv = tokenVersionOf(user);
 
     const accessToken = generateAccessToken({
       sub: String(user.id), // ✅ 轉換為字符串
       email: user.email || '',
       role: userRole,
+      tv,
     });
 
-    const refreshToken = generateRefreshToken(String(user.id)); // ✅ 轉換為字符串
+    const refreshToken = generateRefreshToken(String(user.id), tv); // ✅ 轉換為字符串
 
     console.log('[POST /auth/google/callback] ✅ Tokens generated');
     console.log('[POST /auth/google/callback] ===== END =====');
+
+    setRefreshCookie(res, refreshToken);
 
     // ==========================================
     // 步驟 6：返回響應
@@ -1585,7 +1806,6 @@ router.post('/auth/google/callback', async (req: any, res: any) => {
       success: true,
       message: 'Google authentication successful',
       token: accessToken,
-      refreshToken,
       isNewUser: isNewUser, // ✅ 標記是否為新用戶
       flow: flow, // ← 返回 flow 供前端使用
       user: {

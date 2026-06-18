@@ -101,49 +101,31 @@ export default function GoogleLoginButton({
 
         console.log('[GoogleLoginButton] ✅ Response received:', {
           hasToken: !!data.token,
-          hasRefreshToken: !!data.refreshToken,
           hasAccessToken: !!data.accessToken,
           tokenLength: data.token?.length,
-          refreshTokenLength: data.refreshToken?.length,
           userId: data.user?.id,
           responseKeys: Object.keys(data),
         });
 
         // ✅ 確定要保存的 token 值（後端可能返回 token 或 accessToken）
         const accessToken = data.accessToken || data.token;
-        const refreshToken = data.refreshToken || '';
 
         if (!accessToken) {
           console.error('[GoogleLoginButton] ❌ No access token in response:', data);
           throw new Error('登入失敗：未收到 access token');
         }
 
-        // ✅ 保存 tokens 到 localStorage（使用 tokenManager）
-        console.log('[GoogleLoginButton] 💾 Saving tokens to localStorage...');
+        console.log('[GoogleLoginButton] 💾 Saving access token to localStorage...');
         tokenManager.setAccessToken(accessToken);
-        if (refreshToken) {
-          tokenManager.setRefreshToken(refreshToken);
-        }
-
-        // ✅ 同時保存到 'accessToken' 和 'refreshToken' key（向後兼容）
         localStorage.setItem('accessToken', accessToken);
-        if (refreshToken) {
-          localStorage.setItem('refreshToken', refreshToken);
-        }
 
-        // ✅ 確認保存成功
         const savedAccessToken = localStorage.getItem('accessToken');
-        const savedRefreshToken = localStorage.getItem('refreshToken');
         const savedFitbuddyAccessToken = tokenManager.getAccessToken();
-        const savedFitbuddyRefreshToken = tokenManager.getRefreshToken();
 
         console.log('[GoogleLoginButton] ✅ Token saved confirmation:', {
-          'accessToken': !!savedAccessToken,
-          'refreshToken': !!savedRefreshToken,
-          'fitbuddy_access_token': !!savedFitbuddyAccessToken,
-          'fitbuddy_refresh_token': !!savedFitbuddyRefreshToken,
+          accessToken: !!savedAccessToken,
+          fitbuddy_access_token: !!savedFitbuddyAccessToken,
           accessTokenLength: savedAccessToken?.length,
-          refreshTokenLength: savedRefreshToken?.length,
         });
 
         // ✅ 以伺服器為準：token 已在 tokenManager，fetchMe 一次 set 寫入 user / registrationComplete / nextStep

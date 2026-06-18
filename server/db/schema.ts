@@ -102,6 +102,9 @@ export const users = pgTable('users', {
   
   // 角色與權限
   role: roleEnum('role').notNull().default('USER'),
+
+  // P0-2：logout 時遞增，JWT payload.tv 不符則視為已撤銷
+  tokenVersion: integer('token_version').default(0).notNull(),
   
   // Email 驗證
   emailVerified: boolean('email_verified').default(false).notNull(),

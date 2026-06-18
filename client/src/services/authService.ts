@@ -77,10 +77,8 @@ export const authService = {
   /**
    * 刷新 Access Token
    */
-  async refreshToken(refreshToken: string): Promise<RefreshTokenResponse> {
-    return request.post<RefreshTokenResponse>('/api/auth/refresh', {
-      refreshToken,
-    });
+  async refreshToken(): Promise<RefreshTokenResponse> {
+    return request.post<RefreshTokenResponse>('/api/auth/refresh', {});
   },
 
   /**
@@ -203,7 +201,7 @@ export function useMe() {
  */
 export function useRefreshToken() {
   return useMutation({
-    mutationFn: (refreshToken: string) => authService.refreshToken(refreshToken),
+    mutationFn: () => authService.refreshToken(),
     onError: (error: any) => {
       console.error('Token refresh error:', error);
     },

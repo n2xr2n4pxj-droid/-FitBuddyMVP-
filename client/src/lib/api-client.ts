@@ -11,8 +11,8 @@ export type AuthResponse = AuthApiResponse;
 export interface RefreshTokenResponse {
   success?: boolean;
   token: string;
-  refreshToken: string;
-  expiresIn: number;
+  refreshToken?: string;
+  expiresIn?: number;
 }
 
 export interface ApiErrorResponse {
@@ -56,11 +56,14 @@ export const tokenManager = {
     return localStorage.getItem(ACCESS_TOKEN_KEY);
   },
   setAccessToken: (token: string) => localStorage.setItem(ACCESS_TOKEN_KEY, token),
+  /** @deprecated Refresh token is HttpOnly cookie; kept for legacy cleanup only */
   getRefreshToken: () => localStorage.getItem(REFRESH_TOKEN_KEY),
+  /** @deprecated Refresh token is HttpOnly cookie; kept for legacy cleanup only */
   setRefreshToken: (token: string) => localStorage.setItem(REFRESH_TOKEN_KEY, token),
   clear: () => {
     localStorage.removeItem(ACCESS_TOKEN_KEY);
     localStorage.removeItem(REFRESH_TOKEN_KEY);
+    localStorage.removeItem('refreshToken');
     localStorage.removeItem(LEGACY_ACCESS_TOKEN_KEY);
     localStorage.removeItem(LEGACY_AUTH_TOKEN_KEY);
   },
@@ -95,6 +98,7 @@ export function getApiBaseURL(): string {
 
 export const apiClient: AxiosInstance = axios.create({
   baseURL: getApiBaseURL(),
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -140,18 +144,13 @@ function isPublicUsernameCheckRequest(config: { url?: string }): boolean {
 }
 
 async function performTokenRefresh(): Promise<string> {
-  const refreshToken = tokenManager.getRefreshToken();
-  if (!refreshToken) {
-    throw createAppApiError({ message: 'No refresh token', statusCode: 401 });
-  }
-
   const response = await axios.post<RefreshTokenResponse>(
     `${getApiBaseURL()}/api/auth/refresh`,
-    { refreshToken }
+    {},
+    { withCredentials: true },
   );
 
   tokenManager.setAccessToken(response.data.token);
-  tokenManager.setRefreshToken(response.data.refreshToken);
   return response.data.token;
 }
 
@@ -202,7 +201,7 @@ apiClient.interceptors.request.use(
   async (config) => {
     const publicUsernameCheck = isPublicUsernameCheckRequest(config);
 
-    if (!publicUsernameCheck && tokenManager.isAccessTokenExpired() && tokenManager.getRefreshToken()) {
+    if (!publicUsernameCheck && tokenManager.isAccessTokenExpired()) {
       try {
         const refreshedToken = await getRefreshedTokenSingleFlight({
           source: 'request',
@@ -447,12 +446,16 @@ export const api = {
     me: () =>
       apiClient.get<MeResponse>('/api/auth/me'),
 
-    refresh: (refreshToken: string) =>
-      apiClient.post<RefreshTokenResponse>('/api/auth/refresh', { refreshToken }),
+    refresh: () =>
+      apiClient.post<RefreshTokenResponse>('/api/auth/refresh', {}),
 
-    logout: () => {
+    logout: async () => {
       tokenManager.clear();
-      return Promise.resolve();
+      try {
+        await apiClient.post('/api/auth/logout');
+      } catch {
+        // Best-effort server cookie cleanup
+      }
     },
   },
 

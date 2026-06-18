@@ -64,10 +64,9 @@
 ### Token 管理機制（前端）
 | 項目 | 內容 |
 |---|---|
-| Access token key | `fitbuddy_access_token` |
-| Refresh token key | `fitbuddy_refresh_token` |
-| 舊 key 相容 | `authToken` |
-| 另一套 legacy key | `fitbuddy_token`（`api.ts` 與 RegisterFlow 仍使用） |
+| Access token key | `fitbuddy_access_token`（localStorage；P1 可改 memory-first） |
+| Refresh token | **HttpOnly cookie** `fitbuddy_refresh_token`（P0-2；JS 不可讀） |
+| 舊 key 相容 | `authToken`、`fitbuddy_token`、`refreshToken`（逐步清除） |
 | Header | `Authorization: Bearer <token>` |
 
 ### Pages / Components 組織
@@ -410,6 +409,21 @@ case "schedule":
   - E2E：`e2e/phase7.4/auth-token-hardening.test.ts`
   - 指令：`npx vitest run e2e/phase7.4/auth-token-hardening.test.ts`
 
+### ✅ 2b) P0-2：HttpOnly Refresh + Token Revocation（已完成）
+- **實作**
+  - Refresh token 改 **HttpOnly + Secure + SameSite** cookie（`fitbuddy_refresh_token`），不再由 JS 讀寫。
+  - `users.token_version`：logout / 改密碼 / 重設密碼時 `+1`；JWT payload `tv` 與 DB 不符即 `401`。
+  - 前端 `api-client`：`withCredentials: true`；refresh 改 cookie 驅動；logout 呼叫後端清 cookie。
+  - 新增 `POST /api/auth/change-password`、`POST /api/auth/reset-password`（重設成功亦 bump）。
+  - Migration：`scripts/migrations/add_token_version.sql`（或 `npm run db:push`）。
+- **驗收測試**
+  - 登入後 cookie 有 `HttpOnly`；`localStorage` 無 `fitbuddy_refresh_token`。
+  - logout 後舊 access / refresh（含 body fallback）立即 `401`；重登入後舊 token 仍拒絕。
+  - 多裝置：任一裝置 logout 後，同 user 其他裝置 token 失效。
+- **回歸腳本**
+  - E2E：`e2e/phase7.4/auth-refresh-cookie.test.ts`、`e2e/phase7.4/auth-revocation.test.ts`
+  - 聚合：`npm run test:security:e2e`（54 tests）/ `npm run validate:7.4`
+
 ### ✅ 3) 授權邊界（ReBAC/RBAC）防線（已完成）
 - **實作**
   - 針對 `coach-client`、`plans`、`invitations` 建立未授權/跨帳號防護檢查。
@@ -531,11 +545,11 @@ case "schedule":
    - 🟡 測試資料唯一性策略：目前 `seedActor` 採 `Date.now()+Math.random()`（MVP 可接受）；後續若 CI 併發提高，升級為 `crypto.randomUUID()` / `uuidv4()` 命名以降低碰撞風險  
    - 🟡 更新 `0415ARCHITECTURE.md`（目前段落已更新，持續滾動維護）
 
-一句話結論：**P1 已完成，P2 進行中（Step 1~3 已落地）**。
+一句話結論：**Phase 7.4 W1（含 P0-2）已封頂；下一主線為 W2 / Phase 7.2 路由治理。**
 
-## iOS 上線 4 週倒排甘特（記錄更新：2026-06-02）
+## iOS 上線 4 週倒排甘特（記錄更新：2026-06-10）
 
-- **W1（安全防線）**：件 3、件 5、件 7、件 8 已完成（`validate:7.4` 與 `test:security:e2e` 全綠）。
+- **W1（安全防線）**：件 3、件 5、件 7、件 8 + **P0-2（HttpOnly refresh + tokenVersion revocation）** 已完成（`validate:7.4` 與 `test:security:e2e` 全綠，54 tests）。
 - **W2（7.2 路由與版本治理）**：盤點 `/api` vs `/api/v1` 與 deprecation 規範（待執行）；同步推進 7.1 錯誤契約斷言收斂（目前先維持寬鬆，後續再轉嚴格）。
 - **W3（7.3 效能與索引）**：高頻查詢 `EXPLAIN ANALYZE`、索引策略與回歸基線（待執行）。
 - **W4（上架收斂）**：回歸、監控觀測、上架與營運收尾（待執行）。

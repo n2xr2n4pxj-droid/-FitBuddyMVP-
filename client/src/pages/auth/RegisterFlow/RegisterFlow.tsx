@@ -426,9 +426,6 @@ export default function RegisterFlow(): JSX.Element {
         }
 
         tokenManager.setAccessToken(payload.token);
-        if (payload.refreshToken) {
-          tokenManager.setRefreshToken(payload.refreshToken);
-        }
 
         try {
           await fetchMe();

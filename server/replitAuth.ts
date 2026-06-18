@@ -478,12 +478,13 @@ export const verifyJWT: RequestHandler = async (req: any, res, next) => {
       console.log('[verifyJWT] 🔑 Bearer token found, verifying...');
       const token = authHeader.substring(7); // 移除 "Bearer " 前綴
       
-      let decoded: jwt.JwtPayload & { sub?: string; email?: string; role?: string };
+      let decoded: jwt.JwtPayload & { sub?: string; email?: string; role?: string; tv?: number };
       try {
         decoded = jwt.verify(token, JWT_SECRET) as jwt.JwtPayload & {
           sub?: string;
           email?: string;
           role?: string;
+          tv?: number;
         };
       } catch (jwtError: any) {
         console.error("[verifyJWT] ❌ JWT invalid:", {
@@ -502,7 +503,7 @@ export const verifyJWT: RequestHandler = async (req: any, res, next) => {
       let result: { rows: Array<Record<string, unknown>> };
       try {
         result = await pool.query(
-          `SELECT id, email, first_name, last_name, role FROM users WHERE id = $1 LIMIT 1`,
+          `SELECT id, email, first_name, last_name, role, token_version FROM users WHERE id = $1 LIMIT 1`,
           [decoded.sub]
         );
       } catch (dbErr: any) {
@@ -530,7 +531,20 @@ export const verifyJWT: RequestHandler = async (req: any, res, next) => {
         first_name: string | null;
         last_name: string | null;
         role: string;
+        token_version: number | null;
       };
+
+      const tokenTv = typeof decoded.tv === 'number' ? decoded.tv : 0;
+      const dbTv = Number(row.token_version ?? 0);
+      if (tokenTv !== dbTv) {
+        console.log('[verifyJWT] ❌ Token revoked (tokenVersion mismatch):', {
+          sub: decoded.sub,
+          tokenTv,
+          dbTv,
+        });
+        return res.status(401).json({ message: 'Token has been revoked' });
+      }
+
       req.user = {
         id: row.id,
         email: row.email,

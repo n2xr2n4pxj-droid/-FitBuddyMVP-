@@ -4,17 +4,22 @@ import { ipKeyGenerator, rateLimit, type Options } from "express-rate-limit";
 // 跑 7.4 驗收測試前請確認此值不為 false。
 const isEnabled = process.env.RATE_LIMIT_ENABLED !== "false";
 
+const loginRateLimitMax = Number(
+  process.env.LOGIN_RATE_LIMIT_MAX ??
+    (process.env.NODE_ENV === "production" ? 5 : 30),
+);
+
 const base: Partial<Options> = {
   standardHeaders: true,
   legacyHeaders: false,
   skip: () => !isEnabled,
 };
 
-/** 登入：5 次 / 15 分鐘 / IP */
+/** 登入：production 5 次 / 15 分鐘 / IP；development 預設 30 次（避免 e2e 串測誤觸 429） */
 export const loginLimiter = rateLimit({
   ...base,
   windowMs: 15 * 60 * 1000,
-  max: 5,
+  max: loginRateLimitMax,
   message: {
     success: false,
     errorCode: "RATE_LIMIT_EXCEEDED",

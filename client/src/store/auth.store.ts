@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { authService } from '@/services/authService';
 import { StoreUser } from '@/types/user';
-import { migrateTokenKeys, tokenManager } from '@/lib/api-client';
+import { migrateTokenKeys, tokenManager, api } from '@/lib/api-client';
 
 /**
  * 認證狀態介面
@@ -90,6 +90,8 @@ export const useAuthStore = create<AuthState>()(
           isAuthenticated: true,
           registrationComplete: userData.registrationComplete,
         });
+
+        tokenManager.setAccessToken(token);
 
         // 執行原子化副作用
         try { await _handleCoachRefSequence(); } catch (e) { console.warn("[AuthStore] Coach ref sequence failed silently."); }
@@ -301,6 +303,7 @@ export const useAuthStore = create<AuthState>()(
           });
           localStorage.removeItem('pendingCoachRef');
           localStorage.removeItem('coachRefRetryCount');
+          void api.auth.logout();
         },
       };
     },

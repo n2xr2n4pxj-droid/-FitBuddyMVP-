@@ -35,6 +35,10 @@ async function expectEventuallyRateLimited(
 
 describe("Phase 7.4 - rate limit hardening", () => {
   it("login endpoint should eventually return 429", async () => {
+    const loginMax = Number(
+      process.env.LOGIN_RATE_LIMIT_MAX ??
+        (process.env.NODE_ENV === "production" ? 5 : 30),
+    );
     await expectEventuallyRateLimited(
       "POST /api/auth/login",
       async (attempt) =>
@@ -42,7 +46,7 @@ describe("Phase 7.4 - rate limit hardening", () => {
           email: `rate-limit-login-${Date.now()}-${attempt}@fitbuddy.test`,
           password: "WrongPassword!123",
         }),
-      8,
+      loginMax + 5,
       { requireNon429Before429: false },
     );
   });

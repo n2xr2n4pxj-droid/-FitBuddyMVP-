@@ -45,7 +45,7 @@ export async function getUserById(userId: string | number) {
       role: users.role,
       avatar: users.avatar,
       createdAt: users.createdAt,
-      // 使用 avatar 字段，包含 createdAt
+      tokenVersion: users.tokenVersion,
     })
     .from(users)
     .where(eq(users.id, queryId))
@@ -68,6 +68,7 @@ export async function getUserByEmail(email: string) {
       avatar: users.avatar,
       emailVerified: users.emailVerified, // ✅ 添加 emailVerified 字段
       createdAt: users.createdAt,
+      tokenVersion: users.tokenVersion,
     })
     .from(users)
     .where(sql`LOWER(TRIM(${users.email})) = ${normalizedEmail}`)
@@ -94,6 +95,7 @@ export async function updateUserRole(userId: string, role: string) {
       role: users.role,
       avatar: users.avatar,
       createdAt: users.createdAt,
+      tokenVersion: users.tokenVersion,
     });
   return rows.length > 0 ? rows[0] : null;
 }
