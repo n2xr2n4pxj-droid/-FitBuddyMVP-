@@ -39,20 +39,6 @@ async function seedVerifiedUser() {
   return { email, password: TEST_PASSWORD };
 }
 
-async function loginWithAgent(email: string, password: string) {
-  const agent = request.agent(BASE_URL);
-  const res = await agent
-    .post("/api/auth/login")
-    .send({ email, password })
-    .expect(200);
-
-  return {
-    agent,
-    accessToken: res.body.token as string,
-    refreshJwt: extractRefreshJwt(res.headers["set-cookie"]),
-  };
-}
-
 describe("Phase 7.4 - token revocation (tokenVersion)", () => {
   let credentials!: { email: string; password: string };
 
@@ -66,52 +52,57 @@ describe("Phase 7.4 - token revocation (tokenVersion)", () => {
     }
   });
 
-  it("logout revokes access and refresh tokens from the same session", async () => {
-    const { agent, accessToken, refreshJwt } = await loginWithAgent(
-      credentials.email,
-      credentials.password,
-    );
+  it("revokes tokens on logout, allows re-login, and invalidates other devices", async () => {
+    const agent = request.agent(BASE_URL);
+    const loginRes = await agent
+      .post("/api/auth/login")
+      .send({ email: credentials.email, password: credentials.password })
+      .expect(200);
 
-    await agent.get(ME_PATH).set("Authorization", `Bearer ${accessToken}`).expect(200);
+    const firstAccessToken = loginRes.body.token as string;
+    const firstRefreshJwt = extractRefreshJwt(loginRes.headers["set-cookie"]);
+
+    await agent
+      .get(ME_PATH)
+      .set("Authorization", `Bearer ${firstAccessToken}`)
+      .expect(200);
 
     await agent
       .post("/api/auth/logout")
-      .set("Authorization", `Bearer ${accessToken}`)
+      .set("Authorization", `Bearer ${firstAccessToken}`)
       .expect(200);
 
-    const meRes = await agent
-      .get(ME_PATH)
-      .set("Authorization", `Bearer ${accessToken}`);
-    expect(meRes.status).toBe(401);
+    expect(
+      (await agent.get(ME_PATH).set("Authorization", `Bearer ${firstAccessToken}`)).status,
+    ).toBe(401);
 
-    const refreshRes = await request(BASE_URL)
-      .post("/api/auth/refresh")
-      .send({ refreshToken: refreshJwt });
-    expect(refreshRes.status).toBe(401);
-  });
+    expect(
+      (
+        await request(BASE_URL)
+          .post("/api/auth/refresh")
+          .send({ refreshToken: firstRefreshJwt })
+      ).status,
+    ).toBe(401);
 
-  it("allows re-login and rejects the pre-logout access token", async () => {
-    const first = await loginWithAgent(credentials.email, credentials.password);
-
-    await first.agent
-      .post("/api/auth/logout")
-      .set("Authorization", `Bearer ${first.accessToken}`)
+    const reloginRes = await agent
+      .post("/api/auth/login")
+      .send({ email: credentials.email, password: credentials.password })
       .expect(200);
 
-    const second = await loginWithAgent(credentials.email, credentials.password);
-
-    await second.agent
+    const secondAccessToken = reloginRes.body.token as string;
+    await agent
       .get(ME_PATH)
-      .set("Authorization", `Bearer ${second.accessToken}`)
+      .set("Authorization", `Bearer ${secondAccessToken}`)
       .expect(200);
 
-    const stale = await request(BASE_URL)
-      .get(ME_PATH)
-      .set("Authorization", `Bearer ${first.accessToken}`);
-    expect(stale.status).toBe(401);
-  });
+    expect(
+      (
+        await request(BASE_URL)
+          .get(ME_PATH)
+          .set("Authorization", `Bearer ${firstAccessToken}`)
+      ).status,
+    ).toBe(401);
 
-  it("logout on one device revokes tokens issued to another device", async () => {
     const user = await getUserByEmail(credentials.email);
     expect(user?.id).toBeDefined();
 
@@ -140,9 +131,12 @@ describe("Phase 7.4 - token revocation (tokenVersion)", () => {
       .set("Authorization", `Bearer ${device1Token}`)
       .expect(200);
 
-    const res = await request(BASE_URL)
-      .get(ME_PATH)
-      .set("Authorization", `Bearer ${device2Token}`);
-    expect(res.status).toBe(401);
+    expect(
+      (
+        await request(BASE_URL)
+          .get(ME_PATH)
+          .set("Authorization", `Bearer ${device2Token}`)
+      ).status,
+    ).toBe(401);
   });
 });
