@@ -82,6 +82,13 @@ else
   fail "V3a: client/src 無 check-verification 舊端點引用"
 fi
 
+echo -e "\n${BOLD}[ V3c — legacy verify-email 掛載已接 deprecationMiddleware ]${NC}"
+if "$RG_BIN" 'deprecationMiddleware.*verify-email' server/routes/auth.ts --quiet 2>/dev/null; then
+  pass "V3c: legacy /api/auth/verify-email 掛載已接 deprecationMiddleware"
+else
+  fail "V3c: legacy /api/auth/verify-email 掛載已接 deprecationMiddleware"
+fi
+
 echo -e "\n${BOLD}[ V3b — validate:7.4 回歸守門 ]${NC}"
 if [[ "${VALIDATE_72_SKIP_74:-0}" = "1" ]]; then
   warn "V3b: validate:7.4 已跳過（VALIDATE_72_SKIP_74=1）"

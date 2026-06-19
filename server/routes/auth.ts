@@ -16,6 +16,7 @@ import { sendEmail } from '../services/emailService';
 import { config } from '../config/env';
 import { sendError } from '../lib/response';
 import { ErrorCodes } from '@shared/error-codes';
+import { deprecationMiddleware, LEGACY_API_SUNSET } from '../middleware/deprecation';
 
 const router = Router();
 
@@ -1117,9 +1118,12 @@ router.post('/auth/logout', async (req: any, res: any) => {
 });
 
 // ==========================================
-// GET /auth/verify-email/:token - 驗證郵箱
+// GET /auth/verify-email/:token - 驗證郵箱（legacy HTML redirect）
 // ==========================================
-router.get('/auth/verify-email/:token', async (req: any, res: any) => {
+router.get(
+  '/auth/verify-email/:token',
+  deprecationMiddleware('/api/v1/auth/verify-email', LEGACY_API_SUNSET),
+  async (req: any, res: any) => {
   try {
     const { token } = req.params;
 

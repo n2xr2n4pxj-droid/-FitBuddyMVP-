@@ -373,7 +373,7 @@ case "schedule":
 | 路徑 | 狀態 | 目標 |
 |------|------|------|
 | `/api/auth/login` `/refresh` `/me` `/logout` | 穩定，不版本化 | 維持 |
-| `GET /api/auth/verify-email/:token` | legacy（HTML redirect） | PR-3 加 deprecation header |
+| `GET /api/auth/verify-email/:token` | legacy（HTML redirect）；**已加 Deprecation header**（Sunset 2026-09-01） | 相容期後移除 |
 | `GET /api/v1/auth/verify-email/:token` | v1 JSON 契約 | 維持 |
 | `POST /api/v1/auth/resend-verification` | 僅 v1，無 legacy | 維持 |
 | `GET /api/v1/auth/check-email-verified` | 僅 v1；前端筆誤已修（PR-1） | 維持 |
@@ -589,12 +589,12 @@ case "schedule":
    - 🟡 測試資料唯一性策略：目前 `seedActor` 採 `Date.now()+Math.random()`（MVP 可接受）；後續若 CI 併發提高，升級為 `crypto.randomUUID()` / `uuidv4()` 命名以降低碰撞風險  
    - 🟡 更新 `0415ARCHITECTURE.md`（目前段落已更新，持續滾動維護）
 
-一句話結論：**Phase 7.4 W1（含 P0-2）已封頂；下一主線為 W2 / Phase 7.2 路由治理。**
+一句話結論：**Phase 7.2 W2（PR-1～PR-3）已封頂；下一主線為 W3 / Phase 7.3 效能與索引。**
 
 ## iOS 上線 4 週倒排甘特（記錄更新：2026-06-10）
 
 - **W1（安全防線）**：件 3、件 5、件 7、件 8 + **P0-2（HttpOnly refresh + tokenVersion revocation）** 已完成（`validate:7.4` 與 `test:security:e2e` 全綠，54 tests）。
-- **W2（7.2 路由與版本治理）**：**進行中** — PR-1/PR-2 已落地（策略、`validate:7.2`、`deprecationMiddleware`、invitations legacy header）；PR-3 auth verify-email deprecation 待執行；同步推進 7.1 錯誤契約斷言收斂（目前先維持寬鬆，後續再轉嚴格）。
+- **W2（7.2 路由與版本治理）**：**已完成** — PR-1～PR-3 已落地（策略、`validate:7.2`、`deprecationMiddleware`、invitations + verify-email legacy header）；7.1 錯誤契約斷言收斂仍維持寬鬆，後續獨立推進。
 - **W3（7.3 效能與索引）**：高頻查詢 `EXPLAIN ANALYZE`、索引策略與回歸基線（待執行）。
 - **W4（上架收斂）**：回歸、監控觀測、上架與營運收尾（待執行）。
 

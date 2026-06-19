@@ -24,4 +24,5 @@ export function deprecationMiddleware(successorPath: string, sunsetDate: string)
   };
 }
 
-export const INVITATIONS_LEGACY_SUNSET = "2026-09-01";
+export const LEGACY_API_SUNSET = "2026-09-01";
+export const INVITATIONS_LEGACY_SUNSET = LEGACY_API_SUNSET;
