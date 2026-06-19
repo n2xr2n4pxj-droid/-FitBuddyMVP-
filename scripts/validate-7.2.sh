@@ -42,17 +42,24 @@ else
 fi
 
 echo -e "\n${BOLD}[ V1b — /api/invitations legacy 仍存在（相容期）]${NC}"
-if "$RG_BIN" 'app\.use\("/api/invitations"' server/routes.ts 2>/dev/null | "$RG_BIN" -v 'v1' -q; then
+if "$RG_BIN" '^\s*"/api/invitations"' server/routes.ts --quiet 2>/dev/null; then
   pass "V1b: /api/invitations legacy 掛載仍存在（相容期）"
 else
   fail "V1b: /api/invitations legacy 掛載仍存在（相容期）"
 fi
 
-echo -e "\n${BOLD}[ V2a — deprecationMiddleware（PR-2 交付）]${NC}"
+echo -e "\n${BOLD}[ V2a — deprecationMiddleware 檔案存在 ]${NC}"
 if [[ -f "server/middleware/deprecation.ts" ]]; then
   pass "V2a: deprecationMiddleware 檔案存在"
 else
-  warn "V2a: deprecationMiddleware 尚未建立（PR-2 交付，目前 warn）"
+  fail "V2a: deprecationMiddleware 檔案存在"
+fi
+
+echo -e "\n${BOLD}[ V2c — legacy invitations 掛載有 deprecationMiddleware ]${NC}"
+if "$RG_BIN" 'deprecationMiddleware\(.*/api/v1/invitations' server/routes.ts --quiet 2>/dev/null; then
+  pass "V2c: /api/invitations legacy 已接 deprecationMiddleware"
+else
+  fail "V2c: /api/invitations legacy 已接 deprecationMiddleware"
 fi
 
 echo -e "\n${BOLD}[ V2b — client/src 不得新增 /api/invitations 直連 ]${NC}"

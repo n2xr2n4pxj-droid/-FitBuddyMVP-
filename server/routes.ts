@@ -28,6 +28,10 @@ import nutritionRoutes from "./routes/nutrition";
 import { sendError } from "./lib/response";
 import { ErrorCodes } from "@shared/error-codes";
 import { loginLimiter, registerLimiter } from "./middleware/rateLimiter";
+import {
+  deprecationMiddleware,
+  INVITATIONS_LEGACY_SUNSET,
+} from "./middleware/deprecation";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Auth middleware
@@ -71,13 +75,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Nutrition（Phase G）：/api/nutrition/*
   app.use("/api/nutrition", nutritionRoutes);
   
-  // Register invitation routes (v1 API - recommended)
-  // Routes: /api/v1/invitations/send, /api/v1/invitations/status/:code, /api/v1/invitations/accept/:code, etc.
+  // Invitations — v1（目標路徑）
+  // Routes: /api/v1/invitations/send, /api/v1/invitations/status/:code, etc.
   app.use("/api/v1/invitations", invitationRoutes);
-  
-  // Register invitation routes (legacy - for backward compatibility)
-  // Routes: /api/invitations/send, /api/invitations/status/:code, etc.
-  app.use("/api/invitations", invitationRoutes);
+
+  // Invitations — legacy（相容期，Sunset: 2026-09-01）
+  app.use(
+    "/api/invitations",
+    deprecationMiddleware("/api/v1/invitations", INVITATIONS_LEGACY_SUNSET),
+    invitationRoutes,
+  );
   
   // Admin email routes
   app.use("/api/admin/email", emailAdminRouter);

@@ -377,7 +377,7 @@ case "schedule":
 | `GET /api/v1/auth/verify-email/:token` | v1 JSON 契約 | 維持 |
 | `POST /api/v1/auth/resend-verification` | 僅 v1，無 legacy | 維持 |
 | `GET /api/v1/auth/check-email-verified` | 僅 v1；前端筆誤已修（PR-1） | 維持 |
-| `/api/invitations/*` | legacy，雙掛載 | PR-2 加 deprecation header |
+| `/api/invitations/*` | legacy，雙掛載；**已加 Deprecation header**（Sunset 2026-09-01） | 相容期後移除 |
 | `/api/v1/invitations/*` | 目標路徑，前端已乾淨 | 維持 |
 | `/api/workouts/*` `/api/plans/*` | 穩定，7.3 前不動 | 留 W3 |
 
@@ -392,7 +392,7 @@ case "schedule":
 | 項目 | 標準 |
 |------|------|
 | 文件 | 版本策略 + 路由表 + deprecation 時程 |
-| 程式 | `deprecationMiddleware` + invitations legacy 標記（PR-2） |
+| 程式 | `deprecationMiddleware` + invitations legacy 標記（**PR-2 已完成**） |
 | 守門 | `npm run validate:7.2` 進 CI |
 | 回歸 | `validate:7.4` 仍全綠 |
 | 債務 | `check-email-verified` 命名不一致已修（PR-1） |
@@ -594,7 +594,7 @@ case "schedule":
 ## iOS 上線 4 週倒排甘特（記錄更新：2026-06-10）
 
 - **W1（安全防線）**：件 3、件 5、件 7、件 8 + **P0-2（HttpOnly refresh + tokenVersion revocation）** 已完成（`validate:7.4` 與 `test:security:e2e` 全綠，54 tests）。
-- **W2（7.2 路由與版本治理）**：**進行中** — PR-1 策略文件 + `validate:7.2` + `check-email-verified` 修正已落地；PR-2 `deprecationMiddleware` + invitations header 待執行；同步推進 7.1 錯誤契約斷言收斂（目前先維持寬鬆，後續再轉嚴格）。
+- **W2（7.2 路由與版本治理）**：**進行中** — PR-1/PR-2 已落地（策略、`validate:7.2`、`deprecationMiddleware`、invitations legacy header）；PR-3 auth verify-email deprecation 待執行；同步推進 7.1 錯誤契約斷言收斂（目前先維持寬鬆，後續再轉嚴格）。
 - **W3（7.3 效能與索引）**：高頻查詢 `EXPLAIN ANALYZE`、索引策略與回歸基線（待執行）。
 - **W4（上架收斂）**：回歸、監控觀測、上架與營運收尾（待執行）。
 
