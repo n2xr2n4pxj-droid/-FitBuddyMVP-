@@ -348,10 +348,54 @@ case "schedule":
 - **核心目標**：降低技術債，確保可演進性。
 - **現況**：存在 `/api/` 與部分 `/api/v1/` 並存情況，長期會增加維護與遷移成本。
 - **硬化動作**：
-  - 制定單一版本策略（例如明確規範新功能是否必須走 `/api/v1`）。
+  - 制定單一版本策略（見下方 §7.2 API 版本策略）。
   - 建立 deprecation 規範：舊路由公告期、相容期、移除期。
   - 對外（Mobile/Web）維持穩定契約，重大變更採版本切換而非破壞性覆寫。
   - 產出路由清單與責任邊界文件，避免重複與陰影端點。
+
+#### §7.2 API 版本策略
+
+**原則**
+
+- **穩定面**（無版本前綴）：`/api/auth/*`、`/api/health`
+  - auth 主幹（login / refresh / me / logout）維持 `/api/auth/`，不搬 v1
+  - 原因：iOS WebView cookie 路徑、現有 e2e、`JWT_AUTH_VERIFICATION_REPORT` 全綁此路徑
+- **演進面**（`/api/v1/<domain>`）：新模組或對外契約變更才走 v1
+
+**Deprecation 三階段**
+
+1. **公告**：舊路徑加 `Deprecation` / `Sunset` / `Link` header，行為不變（既有樣板：`GET /api/auth/user` → `/api/auth/me`）
+2. **相容期**（2 週）：雙掛載，新 client 只寫 v1，舊 e2e 標 `@legacy`
+3. **移除**：Sunset 日期後刪舊掛載，`validate:7.2` grep gate 轉硬失敗
+
+**現況快照（Phase 7.2 開工時）**
+
+| 路徑 | 狀態 | 目標 |
+|------|------|------|
+| `/api/auth/login` `/refresh` `/me` `/logout` | 穩定，不版本化 | 維持 |
+| `GET /api/auth/verify-email/:token` | legacy（HTML redirect） | PR-3 加 deprecation header |
+| `GET /api/v1/auth/verify-email/:token` | v1 JSON 契約 | 維持 |
+| `POST /api/v1/auth/resend-verification` | 僅 v1，無 legacy | 維持 |
+| `GET /api/v1/auth/check-email-verified` | 僅 v1；前端筆誤已修（PR-1） | 維持 |
+| `/api/invitations/*` | legacy，雙掛載 | PR-2 加 deprecation header |
+| `/api/v1/invitations/*` | 目標路徑，前端已乾淨 | 維持 |
+| `/api/workouts/*` `/api/plans/*` | 穩定，7.3 前不動 | 留 W3 |
+
+**刻意不做（避免 W2 膨脹）**
+
+- 不把 login / refresh / me 搬到 `/api/v1/auth`
+- 不在 Sunset 前移除 `/api/invitations`（先 header + 文件）
+- 不順手大改 workouts / plans 路徑
+
+**W2 封頂標準**
+
+| 項目 | 標準 |
+|------|------|
+| 文件 | 版本策略 + 路由表 + deprecation 時程 |
+| 程式 | `deprecationMiddleware` + invitations legacy 標記（PR-2） |
+| 守門 | `npm run validate:7.2` 進 CI |
+| 回歸 | `validate:7.4` 仍全綠 |
+| 債務 | `check-email-verified` 命名不一致已修（PR-1） |
 
 ### 7.3 資料庫效能優化（Database Performance & Scalability）
 
@@ -550,7 +594,7 @@ case "schedule":
 ## iOS 上線 4 週倒排甘特（記錄更新：2026-06-10）
 
 - **W1（安全防線）**：件 3、件 5、件 7、件 8 + **P0-2（HttpOnly refresh + tokenVersion revocation）** 已完成（`validate:7.4` 與 `test:security:e2e` 全綠，54 tests）。
-- **W2（7.2 路由與版本治理）**：盤點 `/api` vs `/api/v1` 與 deprecation 規範（待執行）；同步推進 7.1 錯誤契約斷言收斂（目前先維持寬鬆，後續再轉嚴格）。
+- **W2（7.2 路由與版本治理）**：**進行中** — PR-1 策略文件 + `validate:7.2` + `check-email-verified` 修正已落地；PR-2 `deprecationMiddleware` + invitations header 待執行；同步推進 7.1 錯誤契約斷言收斂（目前先維持寬鬆，後續再轉嚴格）。
 - **W3（7.3 效能與索引）**：高頻查詢 `EXPLAIN ANALYZE`、索引策略與回歸基線（待執行）。
 - **W4（上架收斂）**：回歸、監控觀測、上架與營運收尾（待執行）。
 

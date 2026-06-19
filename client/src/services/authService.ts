@@ -112,7 +112,7 @@ export const authService = {
    */
   async checkEmailVerification(email: string): Promise<{ verified: boolean }> {
     return request.get<{ verified: boolean }>(
-      `/api/v1/auth/check-verification?email=${encodeURIComponent(email)}`
+      `/api/v1/auth/check-email-verified?email=${encodeURIComponent(email)}`
     );
   },
 
@@ -261,7 +261,7 @@ export function useResendVerification() {
  */
 export function useCheckEmailVerification(email: string | null) {
   return useQuery({
-    queryKey: ['/api/v1/auth/check-verification', email],
+    queryKey: ['/api/v1/auth/check-email-verified', email],
     queryFn: () => {
       if (!email) throw new Error('Email is required');
       return authService.checkEmailVerification(email);
