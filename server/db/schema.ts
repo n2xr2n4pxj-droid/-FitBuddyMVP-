@@ -539,6 +539,9 @@ export const workoutSessions = pgTable('workout_sessions', {
   userIdx: index('workout_sessions_user_idx').on(table.userId),
   routineIdx: index('workout_sessions_routine_idx').on(table.routineId),
   completedAtIdx: index('workout_sessions_completed_at_idx').on(table.completedAt),
+  userCompletedAtIdx: index('workout_sessions_user_completed_at_idx')
+    .on(table.userId, table.completedAt)
+    .where(sql`completed_at IS NOT NULL`),
 }));
 
 // Session 動作清單（快照：避免課表後續變更影響歷史記錄）
