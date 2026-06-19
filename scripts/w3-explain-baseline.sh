@@ -31,6 +31,19 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ -z "${DATABASE_URL:-}" ]; then
+  for ENV_FILE in "server/.env.local" ".env.local" ".env"; do
+    if [ -f "${ENV_FILE}" ]; then
+      echo "ℹ️  載入 ${ENV_FILE}"
+      set -a
+      # shellcheck disable=SC1090
+      source "${ENV_FILE}"
+      set +a
+      break
+    fi
+  done
+fi
+
+if [ -z "${DATABASE_URL:-}" ]; then
   echo "❌ DATABASE_URL 未設定。請先執行："
   echo "   set -a && source server/.env.local && set +a"
   exit 1
