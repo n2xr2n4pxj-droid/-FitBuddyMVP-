@@ -48,5 +48,8 @@ backups/
 # Build outputs
 *.tsbuildinfo
 
+# W3 EXPLAIN baselines (local only)
+tmp/w3-baseline*
+
 # Husky should be tracked (不要忽略 .husky 目錄)
 !.husky/
