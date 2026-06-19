@@ -204,21 +204,28 @@ router.get("/workout-volume/:userId", verifyJWT, async (req: any, res: any) => {
           date_trunc('week', (ws.completed_at AT TIME ZONE 'Asia/Hong_Kong'))::timestamp AS wk,
           ws.id AS sid
         FROM ${workoutSessions} ws
+        CROSS JOIN bounds b
         WHERE ws.user_id = ${targetUserId}
           AND ws.completed_at IS NOT NULL
+          AND ws.completed_at >= b.cur_week_monday - (${weeks} * interval '7 days')
+      ),
+      completed_sets_per_session AS (
+        SELECT
+          se.session_id AS sid,
+          COUNT(*)::int AS scnt
+        FROM ${sessionExercises} se
+        INNER JOIN ${sessionSets} ss
+          ON ss.session_exercise_id = se.id AND ss.completed = true
+        WHERE se.session_id IN (SELECT sid FROM session_weeks)
+        GROUP BY se.session_id
       ),
       set_counts AS (
         SELECT
           sw.wk,
           sw.sid,
-          (
-            SELECT COUNT(*)::int
-            FROM ${sessionExercises} se
-            INNER JOIN ${sessionSets} ss
-              ON ss.session_exercise_id = se.id AND ss.completed = true
-            WHERE se.session_id = sw.sid
-          ) AS scnt
+          COALESCE(cps.scnt, 0) AS scnt
         FROM session_weeks sw
+        LEFT JOIN completed_sets_per_session cps ON cps.sid = sw.sid
       ),
       agg AS (
         SELECT
