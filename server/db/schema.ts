@@ -12,7 +12,7 @@
 // - 朋友系統（Phase 3）
 // ==========================================
 
-import { sql } from 'drizzle-orm';
+import { desc, sql } from 'drizzle-orm';
 import { 
   pgTable, 
   uuid,
@@ -542,6 +542,8 @@ export const workoutSessions = pgTable('workout_sessions', {
   userCompletedAtIdx: index('workout_sessions_user_completed_at_idx')
     .on(table.userId, table.completedAt)
     .where(sql`completed_at IS NOT NULL`),
+  userListIdx: index('workout_sessions_user_list_idx')
+    .on(table.userId, desc(table.completedAt), desc(table.startedAt)),
 }));
 
 // Session 動作清單（快照：避免課表後續變更影響歷史記錄）
