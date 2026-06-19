@@ -264,24 +264,31 @@ header "S4 — 認證、限流與授權邊界（E2E）"
 
 TEST_BASE_URL="${TEST_BASE_URL:-http://127.0.0.1:3000}"
 
-echo -e "\n${BOLD}[ S4a — API 健康檢查 ]${NC}"
-if curl -fsS "${TEST_BASE_URL}/health" >/dev/null 2>&1; then
-  pass "S4a API 可連線：${TEST_BASE_URL}"
-  S4_API_READY=1
-else
-  fail "S4a API 不可連線：${TEST_BASE_URL}（請先啟動後端）"
-  S4_API_READY=0
-fi
-
-if [[ "$S4_API_READY" -eq 1 ]]; then
+if [[ "${VALIDATE_74_SKIP_E2E:-0}" = "1" ]]; then
+  echo -e "\n${BOLD}[ S4a — API 健康檢查 ]${NC}"
+  warn "S4a 已跳過（VALIDATE_74_SKIP_E2E=1，CI fast gate 僅跑靜態）"
   echo -e "\n${BOLD}[ S4b — phase7.4 全量 security e2e ]${NC}"
-  if npm run test:security:e2e >/dev/null 2>&1; then
-    pass "S4b phase7.4 全量 e2e 通過（含 token/rate-limit/ReBAC/RBAC）"
-  else
-    fail "S4b phase7.4 全量 e2e 失敗"
-  fi
+  warn "S4b 已跳過（VALIDATE_74_SKIP_E2E=1；完整 e2e 請跑 validate:7.4:full 或 Security E2E job）"
 else
-  warn "S4b 已略過（API 未就緒）"
+  echo -e "\n${BOLD}[ S4a — API 健康檢查 ]${NC}"
+  if curl -fsS "${TEST_BASE_URL}/health" >/dev/null 2>&1; then
+    pass "S4a API 可連線：${TEST_BASE_URL}"
+    S4_API_READY=1
+  else
+    fail "S4a API 不可連線：${TEST_BASE_URL}（請先啟動後端）"
+    S4_API_READY=0
+  fi
+
+  if [[ "$S4_API_READY" -eq 1 ]]; then
+    echo -e "\n${BOLD}[ S4b — phase7.4 全量 security e2e ]${NC}"
+    if npm run test:security:e2e >/dev/null 2>&1; then
+      pass "S4b phase7.4 全量 e2e 通過（含 token/rate-limit/ReBAC/RBAC）"
+    else
+      fail "S4b phase7.4 全量 e2e 失敗"
+    fi
+  else
+    warn "S4b 已略過（API 未就緒）"
+  fi
 fi
 
 header "最終結果"

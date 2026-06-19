@@ -24,6 +24,7 @@
     "validate:7.2": "VALIDATE_72_SKIP_74=1 bash scripts/validate-7.2.sh",
     "validate:7.2:full": "bash scripts/validate-7.2.sh",
     "validate:7.4": "bash scripts/validate-7.4.sh",
+    "validate:7.4:static": "VALIDATE_74_SKIP_E2E=1 bash scripts/validate-7.4.sh",
     "test:security:e2e:precheck": "bash scripts/precheck-e2e-health.sh",
     "test:security:e2e": "npm run test:security:e2e:precheck && TEST_BASE_URL=${TEST_BASE_URL:-http://127.0.0.1:3000} vitest run --config vitest.e2e.config.ts e2e/phase7.4 --reporter=verbose",
     "test:security:all": "npm run validate:7.4",

@@ -37,8 +37,11 @@ jobs:
       - name: TypeScript check
         run: npm run check
 
-      - name: Security validation (7.4)
-        run: npm run validate:7.4
+      - name: Phase 7.2 static validation
+        run: npm run validate:7.2
+
+      - name: Security validation (7.4 static)
+        run: npm run validate:7.4:static
 
   # Slow suite: schedule/manual/PR label
   security-e2e:
