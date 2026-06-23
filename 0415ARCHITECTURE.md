@@ -203,6 +203,21 @@ export const isAuthenticated: RequestHandler = (req, res, next) => {
 - `api.ts` 已收斂為 domain facade：token key、錯誤正規化、retry/refresh 與並發 401 單飛 refresh 邏輯皆集中於 `api-client.ts`（不再分裂）
 - 新舊路由與頁面並存（`AuthRoutes`、`AuthRoutesReactRouter`、`UnauthenticatedRoutes` + 舊 `pages/auth-*.tsx`）
 
+### CI — Security Gate Slow E2E（⬜ 技術債，W4 前處理）
+
+- **現況**：`.github/workflows/security-gate.yml` 已拆 **Fast**（`push`/`PR`）與 **Slow**（`workflow_dispatch` / schedule / PR label `run-security-e2e`）。
+  - **Fast gate** ✅：`npm run check`、`validate:7.2`、`validate:7.4:static`（無 DB 依賴）。
+  - **Slow E2E** ❌（CI）：`security-e2e` job 啟動 `node dist/index.js` 時因 **未注入 `DATABASE_URL`**，`server/db.ts` 於 import 階段拋錯，**Wait for API server** 60s 逾時（非測試 regression）。
+- **本機**：`server/.env.local` + Neon dev DB；`npm run test:security:e2e`（54 tests）可全綠。
+- **根因**：CI runner 無 Postgres secrets；`.env` / `server/.env.local` 不進 repo（正確）。
+- **影響**：手動 `gh workflow run "Security Gate"` 或 nightly Slow job 目前**不可作 merge 門檻**；`push` 時 Fast gate 仍有效。
+- **修復 DoD**（預估 0.5～1 天，排 **W4 上架收斂前**）：
+  1. 建立 **Neon dev/staging branch**（勿用 production）。
+  2. GitHub Secrets：`DATABASE_URL`、`JWT_SECRET`、`REFRESH_TOKEN_SECRET`（必要時 `CLIENT_URL`）。
+  3. `security-e2e` job `env` 注入上述 secrets；`Start API server` 步驟一併傳遞。
+  4. 驗收：`gh workflow run "Security Gate" --ref main` → Slow E2E 全綠。
+- **暫不處理理由**：W3 效能主線優先；Slow E2E 本機可回歸，Fast static gate 已擋主要變更。
+
 ---
 
 ## 7) 未完成 / 缺失部分
@@ -400,7 +415,14 @@ case "schedule":
 ### 7.3 資料庫效能優化（Database Performance & Scalability）
 
 - **核心目標**：隨使用量成長仍可維持低延遲與穩定吞吐。
-- **現況**：查詢多為功能導向開發結果，尚需系統化效能審查。
+- **現況**：🟡 進行中 — `scripts/w3-explain-baseline.sh`（`npm run w3:baseline`）已建立 14 條 proxy 查詢基線。
+- **W3 進度（2026-06-23）**：
+  - ✅ **PR-1**：`GET /api/analytics/workout-volume` SQL 改寫（去 correlated subquery）。
+  - ✅ **PR-1b**：partial index `workout_sessions_user_completed_at_idx`（`user_id`, `completed_at DESC` WHERE `completed_at IS NOT NULL`）。
+  - ✅ **PR-2**：list index `workout_sessions_user_list_idx`（`user_id`, `completed_at DESC NULLS LAST`, `started_at DESC`）。
+  - ✅ **PR-3**：composite index `coach_clients_coach_client_status_idx`（`coach_id`, `client_id`, `status`）。
+  - ⬜ **PR-4+**：`plan_assignments`（#4b、#5）、`workout_routines` upcoming（#6）等其餘 P0。
+- **備註**：dev 資料量小時 `EXPLAIN` 可能仍選 Seq Scan；索引價值在資料成長後與 plan 正確性，不以 ms 差異為唯一驗收。
 - **硬化動作**：
   - 對高頻查詢模組（`analytics`、`workouts`、`plans`）執行 `EXPLAIN ANALYZE` 盤點。
   - 建立索引策略（查詢條件欄位、排序欄位、複合索引）與 migration 管理。
@@ -525,6 +547,17 @@ case "schedule":
 - **回歸腳本**
   - `scripts/validate-7.4.sh`（唯一入口）
 
+### 🟡 8b) Security Gate Slow E2E — CI secrets（技術債，W4 前）
+
+- **Workflow**：`.github/workflows/security-gate.yml`
+  | Job | 觸發 | 狀態 |
+  |-----|------|------|
+  | Security Gate (Fast) | `push` / `pull_request` | ✅ 可跑（static only：`validate:7.4:static`） |
+  | Security E2E (Slow) | `workflow_dispatch` / cron / PR label | ❌ CI 缺 DB secrets |
+- **失敗症狀**：Slow job 在 **Wait for API server** 失敗；log 為 `DATABASE_URL must be set`（`server/db.ts`）。
+- **與 §6 CI 技術債同一項**；修復清單見上文 **CI — Security Gate Slow E2E**。
+- **決策**：W3 期間不阻擋主線；**W4 上架收斂前**補齊 secrets 並讓 Slow E2E 成為可選 nightly 門檻。
+
 ---
 
 ## 建議新增指令（`package.json`）
@@ -587,16 +620,17 @@ case "schedule":
   - ✅ 授權邊界 e2e 全量補齊（`invitations/plans/coach-client/workouts/analytics`，含 `Double-ID BOLA` detail endpoint）  
    - 🟡 Error Contract 斷言分階段收斂：目前決策為「先不全面改嚴格斷言」，401 維持務實 `toBeDefined`；待 7.1 全面一致後再改為嚴格 `errorCode` 斷言  
    - 🟡 測試資料唯一性策略：目前 `seedActor` 採 `Date.now()+Math.random()`（MVP 可接受）；後續若 CI 併發提高，升級為 `crypto.randomUUID()` / `uuidv4()` 命名以降低碰撞風險  
+   - 🟡 **CI Slow E2E 缺 `DATABASE_URL` secrets**（見 §6、§8b）；W4 前補，暫以本機 `test:security:e2e` + Fast gate 代替  
    - 🟡 更新 `0415ARCHITECTURE.md`（目前段落已更新，持續滾動維護）
 
-一句話結論：**Phase 7.2 W2（PR-1～PR-3）已封頂；下一主線為 W3 / Phase 7.3 效能與索引。**
+一句話結論：**W3（7.3 效能與索引）進行中（PR-1～PR-3 已落地）；CI Slow E2E secrets 列 W4 前技術債。**
 
-## iOS 上線 4 週倒排甘特（記錄更新：2026-06-10）
+## iOS 上線 4 週倒排甘特（記錄更新：2026-06-19）
 
 - **W1（安全防線）**：件 3、件 5、件 7、件 8 + **P0-2（HttpOnly refresh + tokenVersion revocation）** 已完成（`validate:7.4` 與 `test:security:e2e` 全綠，54 tests）。
 - **W2（7.2 路由與版本治理）**：**已完成** — PR-1～PR-3 已落地（策略、`validate:7.2`、`deprecationMiddleware`、invitations + verify-email legacy header）；7.1 錯誤契約斷言收斂仍維持寬鬆，後續獨立推進。
-- **W3（7.3 效能與索引）**：高頻查詢 `EXPLAIN ANALYZE`、索引策略與回歸基線（待執行）。
-- **W4（上架收斂）**：回歸、監控觀測、上架與營運收尾（待執行）。
+- **W3（7.3 效能與索引）**：🟡 **進行中** — PR-1～PR-3 已落地；下一 **PR-4** 鎖定 `plan_assignments`（#4b、#5）。
+- **W4（上架收斂）**：回歸、監控觀測、上架與營運收尾；**含 CI Slow E2E secrets 補齊**（見 §6、§8b）。
 
 ### 7.5 與 iOS App 上架關聯（為什麼 Phase 7 必做）
 

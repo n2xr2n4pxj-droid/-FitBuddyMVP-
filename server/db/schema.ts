@@ -421,6 +421,8 @@ export const coachClients = pgTable('coach_clients', {
   clientIdx: index('coach_clients_client_idx').on(table.clientId),
   statusIdx: index('coach_clients_status_idx').on(table.status),
   uniqueRelationship: index('coach_clients_unique').on(table.coachId, table.clientId),
+  coachClientStatusIdx: index('coach_clients_coach_client_status_idx')
+    .on(table.coachId, table.clientId, table.status),
 }));
 
 // ⚠️ workoutPlans 已廢棄，統一使用 workoutRoutines（正規化結構 + 軟刪除）
