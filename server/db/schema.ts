@@ -487,6 +487,8 @@ export const planAssignments = pgTable('plan_assignments', {
 }, (table) => ({
   // 同一個 routine 只允許同一個 learner 保留一筆指派（upsert 用）
   routineLearnerIdx: uniqueIndex('routine_learner_idx').on(table.routineId, table.learnerId),
+  learnerAssignedAtIdx: index('plan_assignments_learner_assigned_at_idx')
+    .on(table.learnerId, desc(table.assignedAt)),
 }));
 
 // 課表中的動作清單
