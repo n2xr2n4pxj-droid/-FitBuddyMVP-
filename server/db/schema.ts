@@ -12,7 +12,7 @@
 // - 朋友系統（Phase 3）
 // ==========================================
 
-import { desc, sql } from 'drizzle-orm';
+import { asc, desc, sql } from 'drizzle-orm';
 import { 
   pgTable, 
   uuid,
@@ -466,6 +466,9 @@ export const workoutRoutines = pgTable('workout_routines', {
   coachIdx: index('workout_routines_coach_idx').on(table.coachId),
   clientIdx: index('workout_routines_client_idx').on(table.clientId),
   scheduledDateIdx: index('workout_routines_scheduled_date_idx').on(table.scheduledDate),
+  clientUpcomingIdx: index('workout_routines_client_upcoming_idx')
+    .on(table.clientId, asc(table.scheduledDate))
+    .where(sql`deleted_at IS NULL AND is_completed = false`),
 }));
 
 // 訓練計畫指派（Phase D）

@@ -422,7 +422,8 @@ case "schedule":
   - ✅ **PR-2**：list index `workout_sessions_user_list_idx`（`user_id`, `completed_at DESC NULLS LAST`, `started_at DESC`）。
   - ✅ **PR-3**：composite index `coach_clients_coach_client_status_idx`（`coach_id`, `client_id`, `status`）。
   - ✅ **PR-4**：index `plan_assignments_learner_assigned_at_idx`（`learner_id`, `assigned_at DESC`）。
-  - ⬜ **PR-5+**：`workout_routines` upcoming（#6）等其餘 P0。
+  - ✅ **PR-5**：partial index `workout_routines_client_upcoming_idx`（`client_id`, `scheduled_date ASC` WHERE `deleted_at IS NULL AND is_completed = false`）。
+  - ⬜ **PR-6+**：P1 收尾（#8～#10 notifications 等）。
 - **備註**：dev 資料量小時 `EXPLAIN` 可能仍選 Seq Scan；索引價值在資料成長後與 plan 正確性，不以 ms 差異為唯一驗收。
 - **硬化動作**：
   - 對高頻查詢模組（`analytics`、`workouts`、`plans`）執行 `EXPLAIN ANALYZE` 盤點。
@@ -624,13 +625,13 @@ case "schedule":
    - 🟡 **CI Slow E2E 缺 `DATABASE_URL` secrets**（見 §6、§8b）；W4 前補，暫以本機 `test:security:e2e` + Fast gate 代替  
    - 🟡 更新 `0415ARCHITECTURE.md`（目前段落已更新，持續滾動維護）
 
-一句話結論：**W3（7.3 效能與索引）進行中（PR-1～PR-4 已落地）；CI Slow E2E secrets 列 W4 前技術債。**
+一句話結論：**W3（7.3 效能與索引）P0 已封頂（PR-1～PR-5）；P1 收尾與 CI Slow E2E secrets 列 W4 前。**
 
 ## iOS 上線 4 週倒排甘特（記錄更新：2026-06-19）
 
 - **W1（安全防線）**：件 3、件 5、件 7、件 8 + **P0-2（HttpOnly refresh + tokenVersion revocation）** 已完成（`validate:7.4` 與 `test:security:e2e` 全綠，54 tests）。
 - **W2（7.2 路由與版本治理）**：**已完成** — PR-1～PR-3 已落地（策略、`validate:7.2`、`deprecationMiddleware`、invitations + verify-email legacy header）；7.1 錯誤契約斷言收斂仍維持寬鬆，後續獨立推進。
-- **W3（7.3 效能與索引）**：🟡 **進行中** — PR-1～PR-4 已落地；下一 **PR-5** 鎖定 `workout_routines` upcoming（#6）。
+- **W3（7.3 效能與索引）**：🟡 **P0 已完成**（PR-1～PR-5）；可選 **PR-6** P1 收尾（#8～#10）。
 - **W4（上架收斂）**：回歸、監控觀測、上架與營運收尾；**含 CI Slow E2E secrets 補齊**（見 §6、§8b）。
 
 ### 7.5 與 iOS App 上架關聯（為什麼 Phase 7 必做）
