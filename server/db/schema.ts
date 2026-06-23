@@ -469,6 +469,9 @@ export const workoutRoutines = pgTable('workout_routines', {
   clientUpcomingIdx: index('workout_routines_client_upcoming_idx')
     .on(table.clientId, asc(table.scheduledDate))
     .where(sql`deleted_at IS NULL AND is_completed = false`),
+  coachActiveIdx: index('workout_routines_coach_active_idx')
+    .on(table.coachId)
+    .where(sql`deleted_at IS NULL`),
 }));
 
 // 訓練計畫指派（Phase D）
@@ -649,6 +652,8 @@ export const notifications = pgTable('notifications', {
   userIdx: index('notifications_user_idx').on(table.userId),
   sentAtIdx: index('notifications_sent_at_idx').on(table.sentAt),
   isReadIdx: index('notifications_is_read_idx').on(table.isRead),
+  userSentAtIdx: index('notifications_user_sent_at_idx')
+    .on(table.userId, desc(table.sentAt)),
 }));
 
 export const userNotificationPreferences = pgTable('user_notification_preferences', {

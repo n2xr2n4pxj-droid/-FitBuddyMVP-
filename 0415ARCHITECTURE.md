@@ -415,15 +415,16 @@ case "schedule":
 ### 7.3 資料庫效能優化（Database Performance & Scalability）
 
 - **核心目標**：隨使用量成長仍可維持低延遲與穩定吞吐。
-- **現況**：🟡 進行中 — `scripts/w3-explain-baseline.sh`（`npm run w3:baseline`）已建立 14 條 proxy 查詢基線。
+- **現況**：✅ **W3 已封頂** — `scripts/w3-explain-baseline.sh`（`npm run w3:baseline`）14 條 proxy 查詢均已對應優化或既有索引。
 - **W3 進度（2026-06-23）**：
   - ✅ **PR-1**：`GET /api/analytics/workout-volume` SQL 改寫（去 correlated subquery）。
   - ✅ **PR-1b**：partial index `workout_sessions_user_completed_at_idx`（`user_id`, `completed_at DESC` WHERE `completed_at IS NOT NULL`）。
   - ✅ **PR-2**：list index `workout_sessions_user_list_idx`（`user_id`, `completed_at DESC NULLS LAST`, `started_at DESC`）。
-  - ✅ **PR-3**：composite index `coach_clients_coach_client_status_idx`（`coach_id`, `client_id`, `status`）。
-  - ✅ **PR-4**：index `plan_assignments_learner_assigned_at_idx`（`learner_id`, `assigned_at DESC`）。
-  - ✅ **PR-5**：partial index `workout_routines_client_upcoming_idx`（`client_id`, `scheduled_date ASC` WHERE `deleted_at IS NULL AND is_completed = false`）。
-  - ⬜ **PR-6+**：P1 收尾（#8～#10 notifications 等）。
+  - ✅ **PR-3**：composite index `coach_clients_coach_client_status_idx`（`coach_id`, `client_id`, `status`）；覆蓋 baseline **#3**、**#7**。
+  - ✅ **PR-4**：index `plan_assignments_learner_assigned_at_idx`（`learner_id`, `assigned_at DESC`）；baseline **#4b**、**#5**。
+  - ✅ **PR-5**：partial index `workout_routines_client_upcoming_idx`（`client_id`, `scheduled_date ASC` WHERE `deleted_at IS NULL AND is_completed = false`）；baseline **#6**。
+  - ✅ **PR-6**：`workout_routines_coach_active_idx`（#8）、`notifications_user_sent_at_idx`（#10）。
+  - ✅ **#9**：既有 `body_composition_logs_user_measured_idx`，無需 migration。
 - **備註**：dev 資料量小時 `EXPLAIN` 可能仍選 Seq Scan；索引價值在資料成長後與 plan 正確性，不以 ms 差異為唯一驗收。
 - **硬化動作**：
   - 對高頻查詢模組（`analytics`、`workouts`、`plans`）執行 `EXPLAIN ANALYZE` 盤點。
@@ -625,13 +626,13 @@ case "schedule":
    - 🟡 **CI Slow E2E 缺 `DATABASE_URL` secrets**（見 §6、§8b）；W4 前補，暫以本機 `test:security:e2e` + Fast gate 代替  
    - 🟡 更新 `0415ARCHITECTURE.md`（目前段落已更新，持續滾動維護）
 
-一句話結論：**W3（7.3 效能與索引）P0 已封頂（PR-1～PR-5）；P1 收尾與 CI Slow E2E secrets 列 W4 前。**
+一句話結論：**W3（7.3 效能與索引）已封頂（PR-1～PR-6）；下一主線 W4（CI secrets + 上架收斂）。**
 
 ## iOS 上線 4 週倒排甘特（記錄更新：2026-06-19）
 
 - **W1（安全防線）**：件 3、件 5、件 7、件 8 + **P0-2（HttpOnly refresh + tokenVersion revocation）** 已完成（`validate:7.4` 與 `test:security:e2e` 全綠，54 tests）。
 - **W2（7.2 路由與版本治理）**：**已完成** — PR-1～PR-3 已落地（策略、`validate:7.2`、`deprecationMiddleware`、invitations + verify-email legacy header）；7.1 錯誤契約斷言收斂仍維持寬鬆，後續獨立推進。
-- **W3（7.3 效能與索引）**：🟡 **P0 已完成**（PR-1～PR-5）；可選 **PR-6** P1 收尾（#8～#10）。
+- **W3（7.3 效能與索引）**：✅ **已完成**（PR-1～PR-6；baseline 快照 `tmp/w3-baseline-after-w3-summary.txt`）。
 - **W4（上架收斂）**：回歸、監控觀測、上架與營運收尾；**含 CI Slow E2E secrets 補齊**（見 §6、§8b）。
 
 ### 7.5 與 iOS App 上架關聯（為什麼 Phase 7 必做）
