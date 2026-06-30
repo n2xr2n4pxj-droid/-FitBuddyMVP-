@@ -628,12 +628,12 @@ case "schedule":
 
 一句話結論：**W3（7.3 效能與索引）已封頂（PR-1～PR-6）；下一主線 W4（CI secrets + 上架收斂）。**
 
-## iOS 上線 4 週倒排甘特（記錄更新：2026-06-19）
+## iOS 上線 4 週倒排甘特（記錄更新：2026-06-23）
 
 - **W1（安全防線）**：件 3、件 5、件 7、件 8 + **P0-2（HttpOnly refresh + tokenVersion revocation）** 已完成（`validate:7.4` 與 `test:security:e2e` 全綠，54 tests）。
 - **W2（7.2 路由與版本治理）**：**已完成** — PR-1～PR-3 已落地（策略、`validate:7.2`、`deprecationMiddleware`、invitations + verify-email legacy header）；7.1 錯誤契約斷言收斂仍維持寬鬆，後續獨立推進。
 - **W3（7.3 效能與索引）**：✅ **已完成**（PR-1～PR-6；baseline 快照 `tmp/w3-baseline-after-w3-summary.txt`）。
-- **W4（上架收斂）**：回歸、監控觀測、上架與營運收尾；**含 CI Slow E2E secrets 補齊**（見 §6、§8b）。
+- **W4（上架收斂）**：🟡 **進行中** — CI Slow E2E secrets、全量 `test:security:e2e` 回歸、RC / TestFlight / 送審（見 §6、§8b）。
 
 ### 7.5 與 iOS App 上架關聯（為什麼 Phase 7 必做）
 
@@ -645,7 +645,7 @@ case "schedule":
 
 1. **P0（先做）**：7.1 錯誤合約守門 + 7.4 安全最小防線。  
 2. **P1（次做）**：7.2 版本治理與路由統一。  
-3. **P1/P2（持續）**：7.3 效能基線、索引優化、壓測回歸。  
+3. **P1/P2（持續）**：7.3 效能基線、索引優化 — **✅ W3 已封頂（PR-1～6）**；下一主線 W4 上架收斂。  
 
 ---
 

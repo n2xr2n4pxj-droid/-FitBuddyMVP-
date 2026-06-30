@@ -56,6 +56,9 @@ jobs:
       RATE_LIMIT_ENABLED: "true"
       NODE_ENV: test
       PORT: "3000"
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      JWT_SECRET: ${{ secrets.JWT_SECRET }}
+      REFRESH_TOKEN_SECRET: ${{ secrets.REFRESH_TOKEN_SECRET }}
 
     steps:
       - uses: actions/checkout@v4
