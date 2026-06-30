@@ -203,20 +203,18 @@ export const isAuthenticated: RequestHandler = (req, res, next) => {
 - `api.ts` 已收斂為 domain facade：token key、錯誤正規化、retry/refresh 與並發 401 單飛 refresh 邏輯皆集中於 `api-client.ts`（不再分裂）
 - 新舊路由與頁面並存（`AuthRoutes`、`AuthRoutesReactRouter`、`UnauthenticatedRoutes` + 舊 `pages/auth-*.tsx`）
 
-### CI — Security Gate Slow E2E（⬜ 技術債，W4 前處理）
+### CI — Security Gate Slow E2E（✅ 已完成，W4 D-5）
 
 - **現況**：`.github/workflows/security-gate.yml` 已拆 **Fast**（`push`/`PR`）與 **Slow**（`workflow_dispatch` / schedule / PR label `run-security-e2e`）。
   - **Fast gate** ✅：`npm run check`、`validate:7.2`、`validate:7.4:static`（無 DB 依賴）。
-  - **Slow E2E** ❌（CI）：`security-e2e` job 啟動 `node dist/index.js` 時因 **未注入 `DATABASE_URL`**，`server/db.ts` 於 import 階段拋錯，**Wait for API server** 60s 逾時（非測試 regression）。
-- **本機**：`server/.env.local` + Neon dev DB；`npm run test:security:e2e`（54 tests）可全綠。
-- **根因**：CI runner 無 Postgres secrets；`.env` / `server/.env.local` 不進 repo（正確）。
-- **影響**：手動 `gh workflow run "Security Gate"` 或 nightly Slow job 目前**不可作 merge 門檻**；`push` 時 Fast gate 仍有效。
-- **修復 DoD**（預估 0.5～1 天，排 **W4 上架收斂前**）：
-  1. 建立 **Neon dev/staging branch**（勿用 production）。
-  2. GitHub Secrets：`DATABASE_URL`、`JWT_SECRET`、`REFRESH_TOKEN_SECRET`（必要時 `CLIENT_URL`）。
-  3. `security-e2e` job `env` 注入上述 secrets；`Start API server` 步驟一併傳遞。
-  4. 驗收：`gh workflow run "Security Gate" --ref main` → Slow E2E 全綠。
-- **暫不處理理由**：W3 效能主線優先；Slow E2E 本機可回歸，Fast static gate 已擋主要變更。
+  - **Slow E2E** ✅（CI）：`security-e2e` job 已注入 secrets，`node dist/index.js` 可啟動並跑全量 e2e。
+- **本機**：`server/.env.local` + Neon dev DB；`npm run test:security:e2e` 可全綠（需先 `npm run dev:backend`）。
+- **已落地**（commits `a62ed5a`、`5b40726`、`5c6a9e3`）：
+  1. GitHub Secrets：`DATABASE_URL`、`JWT_SECRET`、`REFRESH_TOKEN_SECRET`、`RESEND_API_KEY`（Neon dev branch，非 production）。
+  2. `security-e2e` job `env` 注入上述 secrets。
+  3. 補 `cors` 依賴（`node dist/index.js` 啟動所需）。
+- **驗收**：`gh workflow run "Security Gate" --ref main` → run `28456987031` 全綠（**13 files / 56 tests**）。
+- **後續**：Slow E2E 可作 nightly / 手動回歸門檻；`push` 時 Fast gate 仍為必檢。
 
 ---
 
@@ -491,7 +489,7 @@ case "schedule":
   - 多裝置：任一裝置 logout 後，同 user 其他裝置 token 失效。
 - **回歸腳本**
   - E2E：`e2e/phase7.4/auth-refresh-cookie.test.ts`、`e2e/phase7.4/auth-revocation.test.ts`
-  - 聚合：`npm run test:security:e2e`（54 tests）/ `npm run validate:7.4`
+  - 聚合：`npm run test:security:e2e`（56 tests）/ `npm run validate:7.4`
 
 ### ✅ 3) 授權邊界（ReBAC/RBAC）防線（已完成）
 - **實作**
@@ -550,16 +548,15 @@ case "schedule":
 - **回歸腳本**
   - `scripts/validate-7.4.sh`（唯一入口）
 
-### 🟡 8b) Security Gate Slow E2E — CI secrets（技術債，W4 前）
+### ✅ 8b) Security Gate Slow E2E — CI secrets（已完成，W4 D-5）
 
 - **Workflow**：`.github/workflows/security-gate.yml`
   | Job | 觸發 | 狀態 |
   |-----|------|------|
   | Security Gate (Fast) | `push` / `pull_request` | ✅ 可跑（static only：`validate:7.4:static`） |
-  | Security E2E (Slow) | `workflow_dispatch` / cron / PR label | ❌ CI 缺 DB secrets |
-- **失敗症狀**：Slow job 在 **Wait for API server** 失敗；log 為 `DATABASE_URL must be set`（`server/db.ts`）。
-- **與 §6 CI 技術債同一項**；修復清單見上文 **CI — Security Gate Slow E2E**。
-- **決策**：W3 期間不阻擋主線；**W4 上架收斂前**補齊 secrets 並讓 Slow E2E 成為可選 nightly 門檻。
+  | Security E2E (Slow) | `workflow_dispatch` / cron / PR label | ✅ 全綠（13 files / 56 tests；run `28456987031`） |
+- **與 §6 同一項**；修復與驗收見上文 **CI — Security Gate Slow E2E**。
+- **決策**：Slow E2E 已可作 nightly / 手動回歸門檻；下一主線 **D-4～D-1**（RC / TestFlight / 送審）。
 
 ---
 
@@ -623,17 +620,19 @@ case "schedule":
   - ✅ 授權邊界 e2e 全量補齊（`invitations/plans/coach-client/workouts/analytics`，含 `Double-ID BOLA` detail endpoint）  
    - 🟡 Error Contract 斷言分階段收斂：目前決策為「先不全面改嚴格斷言」，401 維持務實 `toBeDefined`；待 7.1 全面一致後再改為嚴格 `errorCode` 斷言  
    - 🟡 測試資料唯一性策略：目前 `seedActor` 採 `Date.now()+Math.random()`（MVP 可接受）；後續若 CI 併發提高，升級為 `crypto.randomUUID()` / `uuidv4()` 命名以降低碰撞風險  
-   - 🟡 **CI Slow E2E 缺 `DATABASE_URL` secrets**（見 §6、§8b）；W4 前補，暫以本機 `test:security:e2e` + Fast gate 代替  
+   - ✅ **CI Slow E2E secrets + 全量回歸**（見 §6、§8b；W4 D-5 已封頂；run `28456987031`：13 files / 56 tests）  
    - 🟡 更新 `0415ARCHITECTURE.md`（目前段落已更新，持續滾動維護）
 
-一句話結論：**W3（7.3 效能與索引）已封頂（PR-1～PR-6）；下一主線 W4（CI secrets + 上架收斂）。**
+一句話結論：**W4 D-5（CI Slow E2E）已封頂；下一主線 D-4～D-1（RC / TestFlight / 送審）。**
 
-## iOS 上線 4 週倒排甘特（記錄更新：2026-06-23）
+## iOS 上線 4 週倒排甘特（記錄更新：2026-06-30）
 
-- **W1（安全防線）**：件 3、件 5、件 7、件 8 + **P0-2（HttpOnly refresh + tokenVersion revocation）** 已完成（`validate:7.4` 與 `test:security:e2e` 全綠，54 tests）。
+- **進度**：**16/20** 日任務完成（D-5 ✅；D-4～D-1 待開始）。
+- **W1（安全防線）**：件 3、件 5、件 7、件 8 + **P0-2（HttpOnly refresh + tokenVersion revocation）** 已完成（`validate:7.4` 與 `test:security:e2e` 全綠）。
 - **W2（7.2 路由與版本治理）**：**已完成** — PR-1～PR-3 已落地（策略、`validate:7.2`、`deprecationMiddleware`、invitations + verify-email legacy header）；7.1 錯誤契約斷言收斂仍維持寬鬆，後續獨立推進。
 - **W3（7.3 效能與索引）**：✅ **已完成**（PR-1～PR-6；baseline 快照 `tmp/w3-baseline-after-w3-summary.txt`）。
-- **W4（上架收斂）**：🟡 **進行中** — CI Slow E2E secrets、全量 `test:security:e2e` 回歸、RC / TestFlight / 送審（見 §6、§8b）。
+- **W4（上架收斂）**：🟡 **進行中** — **D-5 ✅**（CI secrets、`test:security:e2e` CI 全綠）；**D-4～D-1** RC / TestFlight / 法遵 / Go/No-Go / 送審。
+- **D-5 交付摘要**：GitHub Secrets（`DATABASE_URL`、`JWT_SECRET`、`REFRESH_TOKEN_SECRET`、`RESEND_API_KEY`）+ `security-gate.yml` 注入 + `cors` 依賴修復；驗收 run `28456987031`。
 
 ### 7.5 與 iOS App 上架關聯（為什麼 Phase 7 必做）
 
@@ -645,7 +644,7 @@ case "schedule":
 
 1. **P0（先做）**：7.1 錯誤合約守門 + 7.4 安全最小防線。  
 2. **P1（次做）**：7.2 版本治理與路由統一。  
-3. **P1/P2（持續）**：7.3 效能基線、索引優化 — **✅ W3 已封頂（PR-1～6）**；下一主線 W4 上架收斂。  
+3. **P1/P2（持續）**：7.3 效能基線、索引優化 — **✅ W3 已封頂（PR-1～6）**；W4 **D-5 已封頂**；下一主線 **D-4～D-1** 上架收斂。  
 
 ---
 
