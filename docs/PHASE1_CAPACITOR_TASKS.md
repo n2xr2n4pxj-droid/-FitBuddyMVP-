@@ -185,6 +185,44 @@ S1→S2→S3→S4（Staging）
 | HttpOnly cookie 跨域失敗 | **必須** staging 同網域 hosted |
 | 投入時間不足導致拖期 | 對外承諾 **4～5 週日曆**，非 2～3 週 |
 | placeholder 審核/內測差評 | W3 隱藏未完成 tab |
+| 冒煙 **#3** OAuth 首次串接卡關 | 見下方 **C4 除錯備忘**；卡 1～2 天常見，不代表估期錯誤 |
+| 冒煙 **#11** 弱網在 WebView 行為不同 | 真機用 Network Link Conditioner / 飛航模式；預留額外耐心 |
+
+### C4 除錯備忘（Google OAuth 系統瀏覽器跳轉）
+
+平常 Web 開發較少測、Capacitor **第一次串接常出包**的環節。卡關多半是設定未對齊，**不代表任務表估錯**。
+
+**必對齊的設定：**
+
+1. **Google Cloud Console**
+   - OAuth 用戶端：iOS +（若用 Web flow）Web 類型
+   - **Redirect URI** 含 Capacitor callback（例：`com.googleusercontent.apps.<id>:/oauth2redirect` 或自訂 `hk.fitbuddy.app://...`）
+
+2. **Xcode `Info.plist`**
+   - `CFBundleURLTypes` / **URL Scheme** 與 Google / 自訂 scheme 一致
+   - 漏設 → Safari 登入成功但 **跳不回 App**
+
+3. **Capacitor 回調**
+   - `@capacitor/browser` 或 `ASWebAuthenticationSession` 關閉時機
+   - `appUrlOpen` / deep link 監聽已註冊
+   - hosted 模式下 **staging 網域** OAuth callback 路徑與 Console 一致
+
+**症狀對照：**
+
+| 現象 | 常見原因 |
+|------|----------|
+| `disallowed_useragent` | 仍在 WKWebView 內做 OAuth → 改系統瀏覽器 |
+| 登入完 Safari 不跳回 App | URL scheme / redirect URI 未設對 |
+| 跳回 App 但 401 / 未登入 | cookie 跨域；hosted 應 **同 origin** |
+
+### 冒煙 #3 / #11 注意（真機測時多留耐心）
+
+| 項 | Web 冒煙 | Capacitor 真機 |
+|----|----------|----------------|
+| **#3 Google OAuth** | 同頁 redirect，多半一次過 | App → 系統瀏覽器 → 回 App；任一環節錯即失敗 |
+| **#11 弱網** | 瀏覽器自有離線/錯誤頁 | WebView 易 **白屏、無提示、請求掛死**；需驗 `offline-manager` 與錯誤 UI |
+
+**#11 建議測法：** iOS 設定 → 開發者 → Network Link Conditioner（或飛航模式切換）。通過標準：**不 crash、不無限轉圈、有一句可理解的錯誤提示**。
 
 ---
 
