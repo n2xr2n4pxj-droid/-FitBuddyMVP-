@@ -1,0 +1,58 @@
+---
+description: FitBuddy Phase 1 Capacitor hosted 薄殼開發規則
+alwaysApply: true
+---
+
+# FitBuddy Phase 1 開發規則
+
+權威任務表：`docs/PHASE1_CAPACITOR_TASKS.md`（10 人天、4～5 週日曆）。
+
+## 路線鐵律
+
+- **Capacitor hosted 薄殼**：WebView 載入 staging HTTPS；**非 RN、非全頁搬移**。
+- `client/` 既有頁面（`NutritionPage`、`WorkoutLoggerModal`、`ClientRouter` 等）**不需搬移**；任何「重寫／搬移」建議先證明必要。
+- Staging 必須 **同網域** 提供 SPA + `/api`（HttpOnly refresh cookie 依賴同 origin）。
+
+## 技術棧與改動邊界
+
+- **後端與 API 契約：最小改動**；不為 Capacitor 重寫業務邏輯。允許：部署設定、去 mock、藏 placeholder tab、OAuth 系統瀏覽器 callback。
+- Zustand、React Query、`shared/schema.ts` / Zod **直接複用**。
+- `/api/auth/*` **勿搬** 至 `/api/v1/auth`（WebView cookie 路徑）。
+
+## Phase 1 範圍（勿擴 scope）
+
+- **只做 iOS**；Android 另開。
+- **Sign in with Apple → Phase 2**（送審前），Phase 1 不實作。
+- 教練唯讀飲食、`ClientSelector` 等 → Feature backlog，不算 Phase 1。
+- App Store **送審** → Phase 2（審核為日曆天，不併入 10 人天）。
+
+## 測試帳號
+
+- 種子／手動測試優先 **`coach@fitbuddy.hk`**（見 `server/scripts/seed.ts`）。
+- 既有 e2e／腳本可暫留 `coach@test.com`；Phase 1 **不強制**一次全改。
+- 密碼與 secrets **禁止寫死**；用 env / GitHub Secrets。
+
+## 錯誤處理
+
+- 404 資源不存在；403 無權限；401 未登入或 token 過期；409 業務衝突。
+- 業務邏輯錯誤 **禁止** 回 500。
+
+## 修改後必跑
+
+```bash
+npm run check
+npm run validate:7.2
+npm run validate:7.4:static
+```
+
+若動到 **auth / routes**：
+
+```bash
+npm run dev:backend   # 另開 terminal，先啟動
+npm run test:security:e2e
+```
+
+## Capacitor 高風險項（真機）
+
+- 冒煙 **#3** Google OAuth：用**系統瀏覽器**，非 WKWebView 內 OAuth；callback URL scheme 常卡關（見任務表風險區）。
+- 冒煙 **#11** 弱網：WebView 易白屏；用 Network Link Conditioner 驗證。
